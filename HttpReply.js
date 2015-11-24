@@ -96,8 +96,10 @@ HttpObserver.prototype = {
 		repl.print(fileName);
 		var filePath = OS.Path.join(this.basePath, fileName);
 		
+		// adding new listener immediately (even maybe before output file creation)
+		// otherwise if we add listener in promise then setNewListener will throw NS_ERROR_FAILURE
 		http.QueryInterface(Ci.nsITraceableChannel);
-		let newListener = new TracingListener(filePath, function(){onResponseDone(http, topic)});
+		var newListener = new TracingListener(filePath, function(){onResponseDone(http, topic)});
 		newListener.originalListener = http.setNewListener(newListener);
 	},
 };
@@ -121,11 +123,15 @@ var BinaryOutputStream = CC('@mozilla.org/binaryoutputstream;1', 'nsIBinaryOutpu
 var StorageStream = CC('@mozilla.org/storagestream;1', 'nsIStorageStream', 'init');
 
 function TracingListener(filePath, onDone) {
-	this.filePath = filePath;
 	this.onDone = onDone;
+	this.filePromise = Promise.resolve()
+		.then( () => OS.File.open(filePath, {write: true, truncate: true}) )
+		.then( file => {
+			this.file = file;
+		});
 }
 TracingListener.prototype = {
-	filePromise: null,
+	originalListener: null,
 	file: null,
 
 	onDataAvailable: function(aRequest, aContext, aInputStream, aOffset, aCount) {
@@ -147,12 +153,6 @@ TracingListener.prototype = {
 	onStartRequest: function(aRequest, aContext) {
 		try {
 			this.originalListener.onStartRequest(aRequest, aContext);
-			
-			this.filePromise = Promise.resolve()
-				.then( () => OS.File.open(this.filePath, {write: true, truncate: true}) )
-				.then( file => {
-					this.file = file;
-				});
 		} catch(e) {
 			repl.print(e);
 		}
