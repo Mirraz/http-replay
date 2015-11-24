@@ -26,7 +26,8 @@ var homePath = OS.Path.join(OS.Constants.Path.profileDir, "HttpReply");
 
 function HttpObserver() {
 	this.observeTopics = this.onRequestTopics.concat(this.onResponseTopics);
-	this.basePath = homePath;
+	var baseName = Date.now();
+	this.basePath = OS.Path.join(homePath, baseName);
 }
 HttpObserver.prototype = {
 	observerService: Cc["@mozilla.org/observer-service;1"].getService(Ci.nsIObserverService),
@@ -40,7 +41,14 @@ HttpObserver.prototype = {
 	],
 	
 	start: function(homeCreatedPromise) {
-		this.addObservers();
+		Promise.resolve()
+			.then( () => OS.File.makeDir(this.basePath) )
+			.then( () => {
+				this.addObservers();
+			})
+			.catch( e => {
+				repl.print(e);
+			});
 	},
 	
 	stop: function() {
