@@ -59,8 +59,6 @@ HttpObserver.prototype = {
 	},
 	
 	stop: function() {
-		// TODO: wait all child promises
-		
 		this.catalogFilePromise
 			.then( () => {
 				if (this.catalogFile) this.removeObservers();
@@ -116,12 +114,20 @@ HttpObserver.prototype = {
 		var responseId = Date.now();
 		if (this.prevResponseId && responseId <= this.prevResponseId) responseId = this.prevResponseId + 1;
 		this.prevResponseId = responseId;
-		var respBasePath = OS.Path.join(this.basePath, responseId);
 		
+		var respBasePath = OS.Path.join(this.basePath, responseId);
 		var respDirPromise = this.catalogFilePromise
 			.then( () => OS.File.makeDir(respBasePath) );
+		respDirPromise
+			.catch( e => {
+				repl.print(e);
+			});
 		
-		// TODO: save http headers
+		var httpHeadersPromise = this.saveHttpHeaders(http, respBasePath, respDirPromise);
+		httpHeadersPromise
+			.catch( e => {
+				repl.print(e);
+			});
 		
 		var respDataPath = OS.Path.join(respBasePath, "data");
 		var respDataPromise = respDirPromise
@@ -130,28 +136,67 @@ HttpObserver.prototype = {
 			.catch( e => {
 				repl.print(e);
 			});
-		var self = this;
 		
 		// adding new listener immediately (even maybe before output file creation)
 		// otherwise if we add listener in promise then setNewListener will throw NS_ERROR_FAILURE
 		http.QueryInterface(Ci.nsITraceableChannel);
-		var newListener = new TracingListener(respDataPromise, function(respDataDonePromise){
-			// TODO: save cache entry
-			
+		var newListener = new TracingListener(respDataPromise, respDataDonePromise => {
 			respDataDonePromise
-				.then( () => {
-					let encoder = new TextEncoder();
-					let array = encoder.encode(responseId + " " + http.URI.asciiSpec);
-					return self.catalogFile.write(array);
-				})
 				.catch( e => {
 					repl.print(e);
 				});
-			
-			repl.print("done  " + http.URI.asciiSpec);
+			var cacheEntryPromise = this.saveCacheEntry(http.URI.asciiSpec, respBasePath, respDirPromise);
+			cacheEntryPromise
+				.catch( e => {
+					repl.print(e);
+				});
+			this.addCatalogRecord(
+				http.URI.asciiSpec,
+				responseId,
+				Promise.all([
+					httpHeadersPromise,
+					respDataDonePromise,
+					cacheEntryPromise
+				])
+			);
 		});
 		newListener.originalListener = http.setNewListener(newListener);
 	},
+	
+	saveHttpHeaders: function(http, respBasePath, respDirPromise) {
+		// TODO
+		return respDirPromise;
+	},
+	
+	saveCacheEntry: function(url, respBasePath, respDirPromise) {
+		// TODO
+		return respDirPromise;
+	},
+	
+	addCatalogRecord: function(url, responseId, respAllDonePromise) {
+		this.catalogFilePromise = respAllDonePromise
+			.then(
+				() => {
+					return Promise.resolve()
+						.then( () => {
+							let encoder = new TextEncoder();
+							let array = encoder.encode(responseId + " " + url + "\n");
+							return this.catalogFile.write(array);
+						})
+						.then( () => this.catalogFile.flush() );
+				},
+				e => {
+					repl.print(e);
+				}
+			)
+			.then( () => {
+				repl.print("done  " + url);
+			});
+		this.catalogFilePromise
+			.catch( e => {
+				repl.print(e);
+			});
+	}
 };
 
 this.run = function() {
@@ -173,11 +218,11 @@ var BinaryOutputStream = CC('@mozilla.org/binaryoutputstream;1', 'nsIBinaryOutpu
 var StorageStream = CC('@mozilla.org/storagestream;1', 'nsIStorageStream', 'init');
 
 function TracingListener(fileOpenPromise, onDone) {
-	this.onDone = onDone;
 	this.filePromise = fileOpenPromise
 		.then( file => {
 			this.file = file;
 		});
+	this.onDone = onDone;
 }
 TracingListener.prototype = {
 	originalListener: null,
@@ -218,7 +263,7 @@ TracingListener.prototype = {
 					aStatusCode === 0x805D0021 ||				// NS_ERROR_PARSED_DATA_CACHED
 					aStatusCode === Cr.NS_ERROR_NET_INTERRUPT
 				)) {
-					this.filePromise = this.filePromise.then( () => Promise.reject(aStatusCode));
+					this.filePromise = this.filePromise.then(Promise.reject(aStatusCode));
 				}
 			}
 			
@@ -230,7 +275,11 @@ TracingListener.prototype = {
 						});
 					}
 				});
-			
+		} catch(e) {
+			repl.print(e);
+		}
+		
+		try {
 			this.onDone(this.filePromise);
 		} catch(e) {
 			repl.print(e);
