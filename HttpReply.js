@@ -22,12 +22,13 @@ Promise.prototype.finally = function (callback) {
 var {classes: Cc, interfaces: Ci, results: Cr, Constructor: CC, utils: Cu} = Components;
 
 const {TextDecoder, TextEncoder, OS} = Cu.import("resource://gre/modules/osfile.jsm", {});
-var homePath = OS.Path.join(OS.Constants.Path.profileDir, "HttpReply");
+const homePath = OS.Path.join(OS.Constants.Path.profileDir, "HttpReply");
 
 function HttpObserver() {
 	this.observeTopics = this.onRequestTopics.concat(this.onResponseTopics);
 	var baseName = Date.now();
 	this.basePath = OS.Path.join(homePath, baseName);
+	this.catalogPath = OS.Path.join(this.basePath,  "catalog");
 }
 HttpObserver.prototype = {
 	observerService: Cc["@mozilla.org/observer-service;1"].getService(Ci.nsIObserverService),
@@ -39,21 +40,41 @@ HttpObserver.prototype = {
 		"http-on-examine-cached-response",
 		//"http-on-examine-merged-response",
 	],
+	catalogFile: null,
+	catalogFilePromise: null,
+	prevResponseId: null,
 	
 	start: function(homeCreatedPromise) {
-		Promise.resolve()
+		this.catalogFilePromise = Promise.resolve()
 			.then( () => OS.File.makeDir(this.basePath) )
-			.then( () => {
+			.then( () => OS.File.open(this.catalogPath, {write: true, truncate: true}) )
+			.then( file => {
+				this.catalogFile = file;
 				this.addObservers();
-			})
+			});
+		this.catalogFilePromise
 			.catch( e => {
 				repl.print(e);
 			});
 	},
 	
 	stop: function() {
-		this.removeObservers();
-		// TODO: wait all promises
+		// TODO: wait all child promises
+		
+		this.catalogFilePromise
+			.then( () => {
+				if (this.catalogFile) this.removeObservers();
+			})
+			.finally( () => {
+				if (this.catalogFile) {
+					return this.catalogFile.close().catch( e => {
+						repl.print(e);
+					});
+				}
+			})
+			.catch( e => {
+				repl.print(e);
+			});
 	},
 	
 	addObservers: function() {
@@ -90,16 +111,45 @@ HttpObserver.prototype = {
 	
 	onExamineAnyResponse: function(http, topic) {
 		http.QueryInterface(Ci.nsIHttpChannel);
+		repl.print("start " + http.URI.asciiSpec);
 		
-		var url = http.URI.asciiSpec;
-		var fileName = url.replace(/\//g, "#");
-		repl.print(fileName);
-		var filePath = OS.Path.join(this.basePath, fileName);
+		var responseId = Date.now();
+		if (this.prevResponseId && responseId <= this.prevResponseId) responseId = this.prevResponseId + 1;
+		this.prevResponseId = responseId;
+		var respBasePath = OS.Path.join(this.basePath, responseId);
+		
+		var respDirPromise = this.catalogFilePromise
+			.then( () => OS.File.makeDir(respBasePath) );
+		
+		// TODO: save http headers
+		
+		var respDataPath = OS.Path.join(respBasePath, "data");
+		var respDataPromise = respDirPromise
+			.then( () => OS.File.open(respDataPath, {write: true, truncate: true}) );
+		respDataPromise
+			.catch( e => {
+				repl.print(e);
+			});
+		var self = this;
 		
 		// adding new listener immediately (even maybe before output file creation)
 		// otherwise if we add listener in promise then setNewListener will throw NS_ERROR_FAILURE
 		http.QueryInterface(Ci.nsITraceableChannel);
-		var newListener = new TracingListener(filePath, function(){onResponseDone(http, topic)});
+		var newListener = new TracingListener(respDataPromise, function(respDataDonePromise){
+			// TODO: save cache entry
+			
+			respDataDonePromise
+				.then( () => {
+					let encoder = new TextEncoder();
+					let array = encoder.encode(responseId + " " + http.URI.asciiSpec);
+					return self.catalogFile.write(array);
+				})
+				.catch( e => {
+					repl.print(e);
+				});
+			
+			repl.print("done  " + http.URI.asciiSpec);
+		});
 		newListener.originalListener = http.setNewListener(newListener);
 	},
 };
@@ -122,10 +172,9 @@ var BinaryInputStream = CC('@mozilla.org/binaryinputstream;1', 'nsIBinaryInputSt
 var BinaryOutputStream = CC('@mozilla.org/binaryoutputstream;1', 'nsIBinaryOutputStream', 'setOutputStream');
 var StorageStream = CC('@mozilla.org/storagestream;1', 'nsIStorageStream', 'init');
 
-function TracingListener(filePath, onDone) {
+function TracingListener(fileOpenPromise, onDone) {
 	this.onDone = onDone;
-	this.filePromise = Promise.resolve()
-		.then( () => OS.File.open(filePath, {write: true, truncate: true}) )
+	this.filePromise = fileOpenPromise
 		.then( file => {
 			this.file = file;
 		});
@@ -173,28 +222,21 @@ TracingListener.prototype = {
 				}
 			}
 			
-			this.filePromise
+			this.filePromise = this.filePromise
 				.finally( () => {
 					if (this.file) {
 						return this.file.close().catch( e => {
 							repl.print(e);
 						});
 					}
-				})
-				.catch( e => {
-					repl.print(e);
 				});
 			
-			if (aStatusCode === Cr.NS_OK) this.onDone();
+			this.onDone(this.filePromise);
 		} catch(e) {
 			repl.print(e);
 		}
 	},
 };
-
-function onResponseDone(http, topic) {
-	repl.print(http.URI.asciiSpec);
-}
 
 this.run();
 }
