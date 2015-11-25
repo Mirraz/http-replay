@@ -136,7 +136,7 @@ HttpObserver.prototype = {
 				repl.print(e);
 			});
 		
-		var httpHeadersPromise = this.saveHttpHeaders(http, respBasePath, respDirPromise);
+		var httpHeadersPromise = HttpObserver.saveHttpHeaders(respDirPromise, respBasePath, http);
 		httpHeadersPromise
 			.catch( e => {
 				repl.print(e);
@@ -158,35 +158,25 @@ HttpObserver.prototype = {
 				.catch( e => {
 					repl.print(e);
 				});
-			var cacheEntryPromise = this.saveCacheEntry(http.URI.asciiSpec, respBasePath, respDirPromise);
+			var cacheEntryPromise = HttpObserver.saveCacheEntry(respDirPromise, respBasePath, http.URI.asciiSpec);
 			cacheEntryPromise
 				.catch( e => {
 					repl.print(e);
 				});
 			this.addCatalogRecord(
-				http.URI.asciiSpec,
-				responseId,
 				Promise.all([
 					httpHeadersPromise,
 					respDataDonePromise,
 					cacheEntryPromise
-				])
+				]),
+				responseId,
+				http.URI.asciiSpec
 			);
 		});
 		newListener.originalListener = http.setNewListener(newListener);
 	},
 	
-	saveHttpHeaders: function(http, respBasePath, respDirPromise) {
-		// TODO
-		return respDirPromise;
-	},
-	
-	saveCacheEntry: function(url, respBasePath, respDirPromise) {
-		// TODO
-		return respDirPromise;
-	},
-	
-	addCatalogRecord: function(url, responseId, respAllDonePromise) {
+	addCatalogRecord: function(respAllDonePromise, responseId, url) {
 		this.catalogFilePromise = respAllDonePromise
 			.then(
 				() => {
@@ -210,6 +200,43 @@ HttpObserver.prototype = {
 				repl.print(e);
 			});
 	}
+};
+HttpObserver.createFileToWrite = function(parentPromise, filePath, writeCallback) {
+	return parentPromise
+		.then( () => OS.File.open(filePath, {write: true, truncate: true}) )
+		.then( file => {
+			return Promise.resolve()
+				.then( () => writeCallback(file) )
+				.finally( () => file.close() );
+		});
+};
+HttpObserver.saveHttpHeaders = function(respDirPromise, respBasePath, http) {
+	var httpHeadersPath = OS.Path.join(respBasePath, "http");
+	return HttpObserver.createFileToWrite(respDirPromise, httpHeadersPath, function(file) {
+		// write http headers into file
+		// TODO
+		let out = {
+			URI: http.URI.asciiSpec,
+			requestMethod: http.requestMethod,
+			contentLength: http.contentLength,
+		};
+		let encoder = new TextEncoder();
+		let array = encoder.encode(JSON.stringify(out));
+		return file.write(array);
+	});
+};
+HttpObserver.saveCacheEntry = function(respDirPromise, respBasePath, url) {
+	var cacheEntryPath = OS.Path.join(respBasePath, "cache");
+	return HttpObserver.createFileToWrite(respDirPromise, cacheEntryPath, function(file) {
+		// write cache entry int file
+		// TODO
+		let out = {
+			"url": url,
+		};
+		let encoder = new TextEncoder();
+		let array = encoder.encode(JSON.stringify(out));
+		return file.write(array);
+	});
 };
 
 this.run = function() {
