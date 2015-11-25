@@ -21,6 +21,8 @@ Promise.prototype.finally = function (callback) {
 
 var {classes: Cc, interfaces: Ci, results: Cr, Constructor: CC, utils: Cu} = Components;
 
+const saveFormatVersion = "1.0";
+
 const {TextDecoder, TextEncoder, OS} = Cu.import("resource://gre/modules/osfile.jsm", {});
 const homePath = OS.Path.join(OS.Constants.Path.profileDir, "HttpReply");
 
@@ -42,15 +44,23 @@ HttpObserver.prototype = {
 	],
 	catalogFile: null,
 	catalogFilePromise: null,
+	observersAdded: false,
 	prevResponseId: null,
 	
 	start: function(homeCreatedPromise) {
 		this.catalogFilePromise = Promise.resolve()
 			.then( () => OS.File.makeDir(this.basePath) )
 			.then( () => OS.File.open(this.catalogPath, {write: true, truncate: true}) )
-			.then( file => {
-				this.catalogFile = file;
+			.then( file => {this.catalogFile = file})
+			.then( () => {
+				let encoder = new TextEncoder();
+				let array = encoder.encode("#version " + saveFormatVersion + "\n");
+				return this.catalogFile.write(array);
+			})
+			.then( () => this.catalogFile.flush() )
+			.then( () => {
 				this.addObservers();
+				this.observersAdded = true;
 			});
 		this.catalogFilePromise
 			.catch( e => {
@@ -61,7 +71,10 @@ HttpObserver.prototype = {
 	stop: function() {
 		this.catalogFilePromise
 			.then( () => {
-				if (this.catalogFile) this.removeObservers();
+				if (this.observersAdded) {
+					this.removeObservers();
+					this.observersAdded = false;
+				}
 			})
 			.finally( () => {
 				if (this.catalogFile) {
