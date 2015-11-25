@@ -263,7 +263,7 @@ TracingListener.prototype = {
 					aStatusCode === 0x805D0021 ||				// NS_ERROR_PARSED_DATA_CACHED
 					aStatusCode === Cr.NS_ERROR_NET_INTERRUPT
 				)) {
-					this.filePromise = this.filePromise.then(Promise.reject(aStatusCode));
+					this.filePromise = this.filePromise.then( () => Promise.reject(aStatusCode) );
 				}
 			}
 			
