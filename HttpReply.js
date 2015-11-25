@@ -27,21 +27,21 @@ const {TextDecoder, TextEncoder, OS} = Cu.import("resource://gre/modules/osfile.
 const homePath = OS.Path.join(OS.Constants.Path.profileDir, "HttpReply");
 
 function HttpObserver() {
-	this.observeTopics = this.onRequestTopics.concat(this.onResponseTopics);
 	var baseName = Date.now();
 	this.basePath = OS.Path.join(homePath, baseName);
 	this.catalogPath = OS.Path.join(this.basePath,  "catalog");
 }
+HttpObserver.onRequestTopics = [
+	//"http-on-modify-request"
+];
+HttpObserver.onResponseTopics = [
+	"http-on-examine-response",
+	"http-on-examine-cached-response",
+	//"http-on-examine-merged-response",
+];
+HttpObserver.observeTopics = HttpObserver.onRequestTopics.concat(HttpObserver.onResponseTopics);
 HttpObserver.prototype = {
 	observerService: Cc["@mozilla.org/observer-service;1"].getService(Ci.nsIObserverService),
-	onRequestTopics: [
-		//"http-on-modify-request"
-	],
-	onResponseTopics: [
-		"http-on-examine-response",
-		"http-on-examine-cached-response",
-		//"http-on-examine-merged-response",
-	],
 	catalogFile: null,
 	catalogFilePromise: null,
 	observersAdded: false,
@@ -89,22 +89,22 @@ HttpObserver.prototype = {
 	},
 	
 	addObservers: function() {
-		this.observeTopics.forEach( topic => {
+		HttpObserver.observeTopics.forEach( topic => {
 			this.observerService.addObserver(this, topic, false);
 		});
 	},
 	
 	removeObservers: function() {
-		this.observeTopics.forEach( topic => {
+		HttpObserver.observeTopics.forEach( topic => {
 			this.observerService.removeObserver(this, topic, false);
 		});
 	},
 
 	observe: function(subject, topic, data) {
 		try {
-			if (this.onRequestTopics.indexOf(topic) >= 0) {
+			if (HttpObserver.onRequestTopics.indexOf(topic) >= 0) {
 				this.onModifyRequest(subject);
-			} else if (this.onResponseTopics.indexOf(topic) >= 0) {
+			} else if (HttpObserver.onResponseTopics.indexOf(topic) >= 0) {
 				this.onExamineAnyResponse(subject, topic);
 			} else {
 				throw Error(topic);
