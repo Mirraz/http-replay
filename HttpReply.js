@@ -136,11 +136,12 @@ HttpObserver.prototype = {
 				repl.print(e);
 			});
 		
-		var httpHeadersPromise = HttpObserver.saveHttpHeaders(respDirPromise, respBasePath, http);
+		var httpHeadersPromise = HttpObserver.saveHttpHeaders(respDirPromise, respBasePath, http, topic);
 		httpHeadersPromise
 			.catch( e => {
 				repl.print(e);
 			});
+		// TODO: POST request data
 		
 		var respDataPath = OS.Path.join(respBasePath, "data");
 		var respDataPromise = respDirPromise
@@ -210,15 +211,47 @@ HttpObserver.createFileToWrite = function(parentPromise, filePath, writeCallback
 				.finally( () => file.close() );
 		});
 };
-HttpObserver.saveHttpHeaders = function(respDirPromise, respBasePath, http) {
+HttpObserver.saveHttpHeaders = function(respDirPromise, respBasePath, http, topic) {
 	var httpHeadersPath = OS.Path.join(respBasePath, "http");
 	return HttpObserver.createFileToWrite(respDirPromise, httpHeadersPath, function(file) {
 		// write http headers into file
-		// TODO
+		
+		let httpReqHeads = [];
+		http.visitRequestHeaders({
+			visitHeader: function(aHeader, aValue) {
+				httpReqHeads.push([aHeader, aValue]);
+			}
+		});
+		
+		let httpRespHeads = [];
+		http.visitResponseHeaders({
+			visitHeader: function(aHeader, aValue) {
+				httpRespHeads.push([aHeader, aValue]);
+			}
+		});
+		
 		let out = {
-			URI: http.URI.asciiSpec,
-			requestMethod: http.requestMethod,
-			contentLength: http.contentLength,
+			"topic": topic,
+			securityInfo: {
+				// TODO
+			},
+			request: {
+				method: http.requestMethod,
+				URI: http.URI.spec,
+				// originalURI: http.originalURI,
+				// name: http.name,
+				headers: httpReqHeads,
+				referrer: http.referrer,
+			},
+			response: {
+				statusCode: http.responseStatus,
+				statusText: http.responseStatusText,
+				//requestSucceeded: http.requestSucceeded,
+				headers: httpRespHeads,
+				contentLength: http.contentLength,
+				contentCharset: http.contentCharset,
+				contentType: http.contentType,
+			},
 		};
 		let encoder = new TextEncoder();
 		let array = encoder.encode(JSON.stringify(out));
