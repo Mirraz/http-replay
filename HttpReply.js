@@ -230,9 +230,23 @@ HttpObserver.saveHttpHeaders = function(respDirPromise, respBasePath, http, topi
 			}
 		});
 		
+		let certCount = 0;
+		let certsSavePromise = Promise.resolve();
+		let siParser = new SecurityInfoParser(function(bytes) {
+			let certPath = OS.Path.join(respBasePath, "cert" + certCount);
+			certsSavePromise = HttpObserver.createFileToWrite(certsSavePromise, certPath, function(file) {
+				return file.write(HttpObserver.StringToUint8Array(bytes));
+			});
+			return certCount++;
+		});
+		certsSavePromise
+			.catch( e => {
+				repl.print(e);
+			});
+		
 		let securityInfoDataObj;
 		if (http.securityInfo !== null) {
-			securityInfoDataObj = SecurityInfoParser.parseSecurityInfo(http.securityInfo);
+			securityInfoDataObj = siParser.parseSecurityInfo(http.securityInfo);
 		} else {
 			securityInfoDataObj = null;
 		}
@@ -260,7 +274,7 @@ HttpObserver.saveHttpHeaders = function(respDirPromise, respBasePath, http, topi
 		};
 		let encoder = new TextEncoder();
 		let array = encoder.encode(JSON.stringify(out));
-		return file.write(array);
+		return Promise.all([certsSavePromise, file.write(array)]);
 	});
 };
 HttpObserver.saveCacheEntry = function(respDirPromise, respBasePath, url) {
@@ -275,6 +289,20 @@ HttpObserver.saveCacheEntry = function(respDirPromise, respBasePath, url) {
 		let array = encoder.encode(JSON.stringify(out));
 		return file.write(array);
 	});
+};
+HttpObserver.Uint8ArrayToString = function(bytes) {
+	var str = "";
+	for (let i = 0; i < bytes.length; i++) {
+		str += String.fromCharCode(bytes[i]);
+	}
+	return str;
+};
+HttpObserver.StringToUint8Array = function(str) {
+	var array = new Uint8Array(new ArrayBuffer(str.length));
+	for(i = 0; i < str.length; i++) {
+		array[i] = str.charCodeAt(i);
+	}
+	return array;
 };
 
 this.run = function() {
@@ -371,7 +399,7 @@ var Pipe = CC('@mozilla.org/pipe;1', 'nsIPipe', 'init');
 var ObjectOutputStream = CC('@mozilla.org/binaryoutputstream;1', 'nsIObjectOutputStream', 'setOutputStream');
 const PR_UINT32_MAX = 0xffffffff;
 
-var SecurityInfoParser = {
+var SecurityInfo = {
 	TransportSecurityInfoID:    [0x16786594, 0x0296, 0x4471, [0x80, 0x96, 0x8F, 0x84, 0x49, 0x7C, 0xA4, 0x28]],
 	nsISupportsID:              [0x00000000, 0x0000, 0x0000, [0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46]],
 	TransportSecurityInfoMagic: [0xA9863A23, 0x1FAA, 0x4169, [0xB0, 0xD2, 0x81, 0x29, 0xEC, 0x7C, 0xB1, 0xDE]],
@@ -382,127 +410,133 @@ var SecurityInfoParser = {
 	nsX509CertListID:           [0x959FB165, 0x6517, 0x487F, [0xAB, 0x9B, 0xD8, 0x91, 0x3B, 0xE5, 0x31, 0x97]],
 	nsIX509CertListID:          [0xAE74CDA5, 0xCD2F, 0x473F, [0x96, 0xF5, 0xF0, 0xB7, 0xFF, 0xF6, 0x2C, 0x68]],
 };
-SecurityInfoParser.parseSecurityInfo = function(securityInfo) {
-	securityInfo.QueryInterface(Ci.nsISerializable);
-	
-	var pipe = new Pipe(false, false, 0, PR_UINT32_MAX, null);
-	var objOStream = new ObjectOutputStream(pipe.outputStream);
-	objOStream.writeCompoundObject(securityInfo, Ci.nsISupports, true);
-	objOStream.close();
 
-	var iStream = new BinaryInputStream(pipe.inputStream);
-	var res = {};
-	SecurityInfoParser.parseSecurityInfoStream(iStream, res);
-	
-	var remainderCount;
-	try {
-		remainderCount = iStream.available();
-	} catch(e) {
-		remainderCount = 0;
-	}
-	if (remainderCount > 0) throw Error("remainder");
-	iStream.close();
-	
-	return res;
-};
-SecurityInfoParser.parseSecurityInfoStream = function(iStream, outObj) {
-	var cid = SecurityInfoParser.readID(iStream);
-	var iid = SecurityInfoParser.readID(iStream);
-	if (! SecurityInfoParser.ID_equal(cid, SecurityInfoParser.TransportSecurityInfoID))
-		throw Error("TransportSecurityInfo cid");
-	if (! SecurityInfoParser.ID_equal(iid, SecurityInfoParser.nsISupportsID))
-		throw Error("nsISupports iid");
-	//outObj["cid"] = cid;
-	//outObj["iid"] = iid;
+function SecurityInfoParser(certWriter) {
+	this.certWriter = certWriter; // binaryString => smth
+}
+SecurityInfoParser.prototype = {
+	parseSecurityInfo: function(securityInfo) {
+		securityInfo.QueryInterface(Ci.nsISerializable);
 
-	var id = SecurityInfoParser.readID(iStream);
-	if (! SecurityInfoParser.ID_equal(id, SecurityInfoParser.TransportSecurityInfoMagic))
-		throw Error("TransportSecurityInfoMagic");
-	//outObj["magic"] = id;
+		var pipe = new Pipe(false, false, 0, PR_UINT32_MAX, null);
+		var objOStream = new ObjectOutputStream(pipe.outputStream);
+		objOStream.writeCompoundObject(securityInfo, Ci.nsISupports, true);
+		objOStream.close();
 
-	outObj["securityState"]             = iStream.read32();
-	outObj["subRequestsBrokenSecurity"] = iStream.read32();
-	outObj["subRequestsNoSecurity"]     = iStream.read32();
-	outObj["errorCode"]                 = iStream.read32();
-	outObj["errorMessageCached"]        = iStream.readString();
+		var iStream = new BinaryInputStream(pipe.inputStream);
+		var res = {};
+		this.parseSecurityInfoStream(iStream, res);
 
-	var SSLStatus;
-	if (iStream.readBoolean()) {
-		SSLStatus = {};
-		SecurityInfoParser.parseSSLStatusStream(iStream, SSLStatus);
-	} else {
-		SSLStatus = null;
-	}
-	outObj["SSLStatus"] = SSLStatus;
+		var remainderCount;
+		try {
+			remainderCount = iStream.available();
+		} catch(e) {
+			remainderCount = 0;
+		}
+		if (remainderCount > 0) throw Error("remainder");
+		iStream.close();
 
-	var failedCertChain;
-	if (iStream.readBoolean()) {
-		failedCertChain = {};
-		SecurityInfoParser.parseFailedCertChainStream(iStream, failedCertChain);
-	} else {
-		failedCertChain = null;
-	}
-	outObj["failedCertChain"] = failedCertChain;
-};
-SecurityInfoParser.parseSSLStatusStream = function(iStream, outObj) {
-	var cid = SecurityInfoParser.readID(iStream);
-	var iid = SecurityInfoParser.readID(iStream);
-	if (! SecurityInfoParser.ID_equal(cid, SecurityInfoParser.nsSSLStatusID))
-		throw Error("nsSSLStatus cid");
-	if (! SecurityInfoParser.ID_equal(iid, SecurityInfoParser.nsISSLStatusID))
-		throw Error("nsISSLStatus iid");
-	//outObj["cid"] = cid;
-	//outObj["iid"] = iid;
-	
-	outObj["serverCert"] = {};
-	SecurityInfoParser.parseCertStream(iStream, outObj["serverCert"]);
-	
-	outObj["cipherSuite"]                = iStream.read16();
-	outObj["protocolVersion"]            = iStream.read16();
-	outObj["isDomainMismatch"]           = iStream.readBoolean();
-	outObj["isNotValidAtThisTime"]       = iStream.readBoolean();
-	outObj["isUntrusted"]                = iStream.readBoolean();
-	outObj["isEV"]                       = iStream.readBoolean();
-	outObj["hasIsEVStatus"]              = iStream.readBoolean();
-	outObj["haveCipherSuiteAndProtocol"] = iStream.readBoolean();
-	outObj["haveCertErrorBits"]          = iStream.readBoolean();
-};
-SecurityInfoParser.parseCertStream = function(iStream, outObj) {
-	var cid = SecurityInfoParser.readID(iStream);
-	var iid = SecurityInfoParser.readID(iStream);
-	if (! SecurityInfoParser.ID_equal(cid, SecurityInfoParser.nsNSSCertificateID))
-		throw Error("nsNSSCertificate cid");
-	if (! SecurityInfoParser.ID_equal(iid, SecurityInfoParser.nsIX509CertID))
-		throw Error("nsIX509Cert iid");
-	//outObj["cid"] = cid;
-	//outObj["iid"] = iid;
-	
-	outObj["cachedEVStatus"] = iStream.read32();
-	
-	var certLen = iStream.read32();
-	var certBytes = iStream.readBytes(certLen);
-	//outObj["len"] = certLen;
-	outObj["cert"] = window.btoa(certBytes);
-};
-SecurityInfoParser.parseFailedCertChainStream = function(iStream, outObj) {
-	var cid = SecurityInfoParser.readID(iStream);
-	var iid = SecurityInfoParser.readID(iStream);
-	if (! SecurityInfoParser.ID_equal(cid, SecurityInfoParser.nsX509CertListID))
-		throw Error("nsX509CertList cid");
-	if (! SecurityInfoParser.ID_equal(iid, SecurityInfoParser.nsIX509CertListID))
-		throw Error("nsIX509CertList iid");
-	//outObj["cid"] = cid;
-	//outObj["iid"] = iid;
-	
-	var certListLen = iStream.read32();
-	//outObj["certListLen"] = certListLen;
-	var certList = new Array(certListLen);
-	for (let i = 0; i < certListLen; ++i) {
-		let cert = {};
-		SecurityInfoParser.parseCertStream(iStream, cert);
-		certList[i] = cert;
-	}
-	outObj["certList"] = certList;
+		return res;
+	},
+	parseSecurityInfoStream: function(iStream, outObj) {
+		var cid = SecurityInfoParser.readID(iStream);
+		var iid = SecurityInfoParser.readID(iStream);
+		if (! SecurityInfoParser.ID_equal(cid, SecurityInfo.TransportSecurityInfoID))
+			throw Error("TransportSecurityInfo cid");
+		if (! SecurityInfoParser.ID_equal(iid, SecurityInfo.nsISupportsID))
+			throw Error("nsISupports iid");
+		//outObj["cid"] = cid;
+		//outObj["iid"] = iid;
+
+		var id = SecurityInfoParser.readID(iStream);
+		if (! SecurityInfoParser.ID_equal(id, SecurityInfo.TransportSecurityInfoMagic))
+			throw Error("TransportSecurityInfoMagic");
+		//outObj["magic"] = id;
+
+		outObj["securityState"]             = iStream.read32();
+		outObj["subRequestsBrokenSecurity"] = iStream.read32();
+		outObj["subRequestsNoSecurity"]     = iStream.read32();
+		outObj["errorCode"]                 = iStream.read32();
+		outObj["errorMessageCached"]        = iStream.readString();
+
+		var SSLStatus;
+		if (iStream.readBoolean()) {
+			SSLStatus = {};
+			this.parseSSLStatusStream(iStream, SSLStatus);
+		} else {
+			SSLStatus = null;
+		}
+		outObj["SSLStatus"] = SSLStatus;
+
+		var failedCertChain;
+		if (iStream.readBoolean()) {
+			failedCertChain = {};
+			this.parseFailedCertChainStream(iStream, failedCertChain);
+		} else {
+			failedCertChain = null;
+		}
+		outObj["failedCertChain"] = failedCertChain;
+	},
+	parseSSLStatusStream: function(iStream, outObj) {
+		var cid = SecurityInfoParser.readID(iStream);
+		var iid = SecurityInfoParser.readID(iStream);
+		if (! SecurityInfoParser.ID_equal(cid, SecurityInfo.nsSSLStatusID))
+			throw Error("nsSSLStatus cid");
+		if (! SecurityInfoParser.ID_equal(iid, SecurityInfo.nsISSLStatusID))
+			throw Error("nsISSLStatus iid");
+		//outObj["cid"] = cid;
+		//outObj["iid"] = iid;
+
+		outObj["serverCert"] = {};
+		this.parseCertStream(iStream, outObj["serverCert"]);
+
+		outObj["cipherSuite"]                = iStream.read16();
+		outObj["protocolVersion"]            = iStream.read16();
+		outObj["isDomainMismatch"]           = iStream.readBoolean();
+		outObj["isNotValidAtThisTime"]       = iStream.readBoolean();
+		outObj["isUntrusted"]                = iStream.readBoolean();
+		outObj["isEV"]                       = iStream.readBoolean();
+		outObj["hasIsEVStatus"]              = iStream.readBoolean();
+		outObj["haveCipherSuiteAndProtocol"] = iStream.readBoolean();
+		outObj["haveCertErrorBits"]          = iStream.readBoolean();
+	},
+	parseCertStream: function(iStream, outObj) {
+		var cid = SecurityInfoParser.readID(iStream);
+		var iid = SecurityInfoParser.readID(iStream);
+		if (! SecurityInfoParser.ID_equal(cid, SecurityInfo.nsNSSCertificateID))
+			throw Error("nsNSSCertificate cid");
+		if (! SecurityInfoParser.ID_equal(iid, SecurityInfo.nsIX509CertID))
+			throw Error("nsIX509Cert iid");
+		//outObj["cid"] = cid;
+		//outObj["iid"] = iid;
+
+		outObj["cachedEVStatus"] = iStream.read32();
+
+		var certLen = iStream.read32();
+		var certBytes = iStream.readBytes(certLen);
+		//outObj["len"] = certLen;
+		outObj["cert"] = this.certWriter(certBytes);
+	},
+	parseFailedCertChainStream: function(iStream, outObj) {
+		var cid = SecurityInfoParser.readID(iStream);
+		var iid = SecurityInfoParser.readID(iStream);
+		if (! SecurityInfoParser.ID_equal(cid, SecurityInfo.nsX509CertListID))
+			throw Error("nsX509CertList cid");
+		if (! SecurityInfoParser.ID_equal(iid, SecurityInfo.nsIX509CertListID))
+			throw Error("nsIX509CertList iid");
+		//outObj["cid"] = cid;
+		//outObj["iid"] = iid;
+
+		var certListLen = iStream.read32();
+		//outObj["certListLen"] = certListLen;
+		var certList = new Array(certListLen);
+		for (let i = 0; i < certListLen; ++i) {
+			let cert = {};
+			this.parseCertStream(iStream, cert);
+			certList[i] = cert;
+		}
+		outObj["certList"] = certList;
+	},
 };
 SecurityInfoParser.readID = function(iStream) {
 	var m = new Array(4);
@@ -524,76 +558,81 @@ SecurityInfoParser.ID_equal = function(a, b) {
 	}
 	return true;
 };
-SecurityInfoParser.packSecurityInfo = function(siDataObj) {
-	var pipe = new Pipe(false, false, 0, PR_UINT32_MAX, null);
-	
-	var oStream = new BinaryOutputStream(pipe.outputStream);
-	SecurityInfoParser.packSecurityInfoStream(oStream, siDataObj);
-	oStream.close();
-	
-	return pipe.inputStream;
-};
-SecurityInfoParser.packSecurityInfoStream = function(oStream, inObj) {
-	SecurityInfoParser.writeID(oStream, SecurityInfoParser.TransportSecurityInfoID);
-	SecurityInfoParser.writeID(oStream, SecurityInfoParser.nsISupportsID);
-	
-	SecurityInfoParser.writeID(oStream, SecurityInfoParser.TransportSecurityInfoMagic);
-	
-	oStream.write32(inObj["securityState"]);
-	oStream.write32(inObj["subRequestsBrokenSecurity"]);
-	oStream.write32(inObj["subRequestsNoSecurity"]);
-	oStream.write32(inObj["errorCode"]);
-	oStream.writeWStringZ(inObj["errorMessageCached"]);
-	
-	var SSLStatus = inObj["SSLStatus"];
-	oStream.writeBoolean(SSLStatus !== null);
-	if (SSLStatus !== null) {
-		SecurityInfoParser.packSSLStatusStream(oStream, SSLStatus);
-	}
 
-	var failedCertChain = inObj["failedCertChain"];
-	oStream.writeBoolean(failedCertChain !== null);
-	if (failedCertChain !== null) {
-		SecurityInfoParser.packFailedCertChainStream(oStream, failedCertChain);
-	}
-};
-SecurityInfoParser.packSSLStatusStream = function(oStream, inObj) {
-	SecurityInfoParser.writeID(oStream, SecurityInfoParser.nsSSLStatusID);
-	SecurityInfoParser.writeID(oStream, SecurityInfoParser.nsISSLStatusID);
-	
-	SecurityInfoParser.packCertStream(oStream, inObj["serverCert"]);
-	
-	oStream.write16(inObj["cipherSuite"]);
-	oStream.write16(inObj["protocolVersion"]);
-	oStream.writeBoolean(inObj["isDomainMismatch"]);
-	oStream.writeBoolean(inObj["isNotValidAtThisTime"]);
-	oStream.writeBoolean(inObj["isUntrusted"]);
-	oStream.writeBoolean(inObj["isEV"]);
-	oStream.writeBoolean(inObj["hasIsEVStatus"]);
-	oStream.writeBoolean(inObj["haveCipherSuiteAndProtocol"]);
-	oStream.writeBoolean(inObj["haveCertErrorBits"]);
-};
-SecurityInfoParser.packCertStream = function(oStream, inObj) {
-	SecurityInfoParser.writeID(oStream, SecurityInfoParser.nsNSSCertificateID);
-	SecurityInfoParser.writeID(oStream, SecurityInfoParser.nsIX509CertID);
-	
-	oStream.write32(inObj["cachedEVStatus"]);
-	
-	var certBase64 = inObj["cert"];
-	var cert = window.atob(certBase64);
-	var len = cert.length;
-	oStream.write32(len);
-	oStream.writeBytes(cert, len);
-};
-SecurityInfoParser.packFailedCertChainStream = function(oStream, inObj) {
-	SecurityInfoParser.writeID(oStream, SecurityInfoParser.nsX509CertListID);
-	SecurityInfoParser.writeID(oStream, SecurityInfoParser.nsIX509CertListID);
-	
-	var certList = inObj["certList"];
-	oStream.write32(certList.length);
-	for (let i = 0; i < certList.length; ++i) {
-		SecurityInfoParser.packCertStream(oStream, certList[i]);
-	}
+function SecurityInfoPacker(certReader) {
+	this.certReader = certReader; // smth => binaryString
+}
+SecurityInfoPacker.prototype = {
+	packSecurityInfo: function(siDataObj) {
+		var pipe = new Pipe(false, false, 0, PR_UINT32_MAX, null);
+
+		var oStream = new BinaryOutputStream(pipe.outputStream);
+		this.packSecurityInfoStream(oStream, siDataObj);
+		oStream.close();
+
+		return pipe.inputStream;
+	},
+	packSecurityInfoStream: function(oStream, inObj) {
+		SecurityInfoParser.writeID(oStream, SecurityInfo.TransportSecurityInfoID);
+		SecurityInfoParser.writeID(oStream, SecurityInfo.nsISupportsID);
+
+		SecurityInfoParser.writeID(oStream, SecurityInfo.TransportSecurityInfoMagic);
+
+		oStream.write32(inObj["securityState"]);
+		oStream.write32(inObj["subRequestsBrokenSecurity"]);
+		oStream.write32(inObj["subRequestsNoSecurity"]);
+		oStream.write32(inObj["errorCode"]);
+		oStream.writeWStringZ(inObj["errorMessageCached"]);
+
+		var SSLStatus = inObj["SSLStatus"];
+		oStream.writeBoolean(SSLStatus !== null);
+		if (SSLStatus !== null) {
+			this.packSSLStatusStream(oStream, SSLStatus);
+		}
+
+		var failedCertChain = inObj["failedCertChain"];
+		oStream.writeBoolean(failedCertChain !== null);
+		if (failedCertChain !== null) {
+			this.packFailedCertChainStream(oStream, failedCertChain);
+		}
+	},
+	packSSLStatusStream: function(oStream, inObj) {
+		SecurityInfoParser.writeID(oStream, SecurityInfo.nsSSLStatusID);
+		SecurityInfoParser.writeID(oStream, SecurityInfo.nsISSLStatusID);
+
+		this.packCertStream(oStream, inObj["serverCert"]);
+
+		oStream.write16(inObj["cipherSuite"]);
+		oStream.write16(inObj["protocolVersion"]);
+		oStream.writeBoolean(inObj["isDomainMismatch"]);
+		oStream.writeBoolean(inObj["isNotValidAtThisTime"]);
+		oStream.writeBoolean(inObj["isUntrusted"]);
+		oStream.writeBoolean(inObj["isEV"]);
+		oStream.writeBoolean(inObj["hasIsEVStatus"]);
+		oStream.writeBoolean(inObj["haveCipherSuiteAndProtocol"]);
+		oStream.writeBoolean(inObj["haveCertErrorBits"]);
+	},
+	packCertStream: function(oStream, inObj) {
+		SecurityInfoParser.writeID(oStream, SecurityInfo.nsNSSCertificateID);
+		SecurityInfoParser.writeID(oStream, SecurityInfo.nsIX509CertID);
+
+		oStream.write32(inObj["cachedEVStatus"]);
+
+		var cert = this.certReader(inObj["cert"]);
+		var len = cert.length;
+		oStream.write32(len);
+		oStream.writeBytes(cert, len);
+	},
+	packFailedCertChainStream: function(oStream, inObj) {
+		SecurityInfoParser.writeID(oStream, SecurityInfo.nsX509CertListID);
+		SecurityInfoParser.writeID(oStream, SecurityInfo.nsIX509CertListID);
+
+		var certList = inObj["certList"];
+		oStream.write32(certList.length);
+		for (let i = 0; i < certList.length; ++i) {
+			this.packCertStream(oStream, certList[i]);
+		}
+	},
 };
 SecurityInfoParser.writeID = function(oStream, ID) {
 	oStream.write32(ID[0]);
