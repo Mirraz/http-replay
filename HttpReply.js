@@ -59,6 +59,7 @@ HttpObserver.prototype = {
 			.then( () => OS.File.open(this.catalogPath, {write: true, truncate: true}) )
 			.then( file => {this.catalogFile = file})
 			.then( () => {
+				// TODO: write version into separate file
 				let encoder = new TextEncoder();
 				let array = encoder.encode("#version " + saveFormatVersion + "\n");
 				return this.catalogFile.write(array);
@@ -128,7 +129,7 @@ HttpObserver.prototype = {
 	
 	onExamineAnyResponse: function(http, topic) {
 		http.QueryInterface(Ci.nsIHttpChannel);
-		repl.print("start " + http.URI.asciiSpec);
+		//repl.print("start " + http.URI.asciiSpec);
 		
 		var responseId = Date.now();
 		if (this.prevResponseId && responseId <= this.prevResponseId) responseId = this.prevResponseId + 1;
@@ -165,6 +166,7 @@ HttpObserver.prototype = {
 				.catch( e => {
 					repl.print(e);
 				});
+			// TODO: if traced data length == 0 then save data from cache entry
 			var cacheEntryPromise = HttpObserver.saveCacheEntry(
 				respDirPromise,
 				respBasePath,
@@ -206,7 +208,7 @@ HttpObserver.prototype = {
 				}
 			)
 			.then( () => {
-				repl.print("done  " + url);
+				//repl.print("done  " + url);
 			});
 		this.catalogFilePromise
 			.catch( e => {
@@ -472,7 +474,8 @@ this.run = function() {
 
 var BinaryInputStream = CC('@mozilla.org/binaryinputstream;1', 'nsIBinaryInputStream', 'setInputStream');
 var BinaryOutputStream = CC('@mozilla.org/binaryoutputstream;1', 'nsIBinaryOutputStream', 'setOutputStream');
-var StorageStream = CC('@mozilla.org/storagestream;1', 'nsIStorageStream', 'init');
+var Pipe = CC('@mozilla.org/pipe;1', 'nsIPipe', 'init');
+const PR_UINT32_MAX = 0xffffffff;
 
 function TracingListener(fileOpenPromise, onDone) {
 	this.filePromise = fileOpenPromise
@@ -488,16 +491,15 @@ TracingListener.prototype = {
 	onDataAvailable: function(aRequest, aContext, aInputStream, aOffset, aCount) {
 		try {
 			var iStream = new BinaryInputStream(aInputStream);
-			// TODO: use Pipe
-			var sStream = new StorageStream(8192, aCount, null);
-			var oStream = new BinaryOutputStream(sStream.getOutputStream(0));
+			var pipe = new Pipe(false, false, 0, PR_UINT32_MAX, null);
+			var oStream = new BinaryOutputStream(pipe.outputStream);
 
 			var data = iStream.readByteArray(aCount);
 			oStream.writeByteArray(data, aCount);
 
 			this.filePromise = this.filePromise.then( () => this.file.write(new Uint8Array(data)) );
 
-			this.originalListener.onDataAvailable(aRequest, aContext, sStream.newInputStream(0), aOffset, aCount);
+			this.originalListener.onDataAvailable(aRequest, aContext, pipe.inputStream, aOffset, aCount);
 		} catch(e) {
 			repl.print(e);
 		}
@@ -514,6 +516,7 @@ TracingListener.prototype = {
 			this.originalListener.onStopRequest(aRequest, aContext, aStatusCode);
 			
 			if (aStatusCode !== Cr.NS_OK) {
+				// TODO
 				if (!(
 					aStatusCode === Cr.NS_BINDING_ABORTED ||
 					aStatusCode === 0x805303F4 ||				// NS_ERROR_DOM_BAD_URI
@@ -545,10 +548,7 @@ TracingListener.prototype = {
 	},
 };
 
-var Pipe = CC('@mozilla.org/pipe;1', 'nsIPipe', 'init');
-//var BinaryInputStream = CC('@mozilla.org/binaryinputstream;1', 'nsIBinaryInputStream', 'setInputStream');
 var ObjectOutputStream = CC('@mozilla.org/binaryoutputstream;1', 'nsIObjectOutputStream', 'setOutputStream');
-const PR_UINT32_MAX = 0xffffffff;
 
 var SecurityInfo = {
 	TransportSecurityInfoID:    [0x16786594, 0x0296, 0x4471, [0x80, 0x96, 0x8F, 0x84, 0x49, 0x7C, 0xA4, 0x28]],
