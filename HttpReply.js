@@ -26,6 +26,11 @@ const saveFormatVersion = "1.0";
 const {TextDecoder, TextEncoder, OS} = Cu.import("resource://gre/modules/osfile.jsm", {});
 const homePath = OS.Path.join(OS.Constants.Path.profileDir, "HttpReply");
 
+const observerService = Cc["@mozilla.org/observer-service;1"].getService(Ci.nsIObserverService);
+
+const cacheService = Cc["@mozilla.org/netwerk/cache-storage-service;1"].getService(Ci.nsICacheStorageService);
+Cu.import("resource://gre/modules/LoadContextInfo.jsm");
+
 function HttpObserver() {
 	var baseName = Date.now();
 	this.basePath = OS.Path.join(homePath, baseName);
@@ -41,7 +46,8 @@ HttpObserver.onResponseTopics = [
 ];
 HttpObserver.observeTopics = HttpObserver.onRequestTopics.concat(HttpObserver.onResponseTopics);
 HttpObserver.prototype = {
-	observerService: Cc["@mozilla.org/observer-service;1"].getService(Ci.nsIObserverService),
+	cacheStorage: cacheService.memoryCacheStorage(LoadContextInfo.default),
+	
 	catalogFile: null,
 	catalogFilePromise: null,
 	observersAdded: false,
@@ -90,13 +96,13 @@ HttpObserver.prototype = {
 	
 	addObservers: function() {
 		HttpObserver.observeTopics.forEach( topic => {
-			this.observerService.addObserver(this, topic, false);
+			observerService.addObserver(this, topic, false);
 		});
 	},
 	
 	removeObservers: function() {
 		HttpObserver.observeTopics.forEach( topic => {
-			this.observerService.removeObserver(this, topic, false);
+			observerService.removeObserver(this, topic, false);
 		});
 	},
 
@@ -159,7 +165,13 @@ HttpObserver.prototype = {
 				.catch( e => {
 					repl.print(e);
 				});
-			var cacheEntryPromise = HttpObserver.saveCacheEntry(respDirPromise, respBasePath, http.URI.asciiSpec);
+			var cacheEntryPromise = HttpObserver.saveCacheEntry(
+				respDirPromise,
+				respBasePath,
+				this.cacheStorage,
+				http.URI,
+				[httpHeadersPromise, respBasePath]
+			);
 			cacheEntryPromise
 				.catch( e => {
 					repl.print(e);
@@ -277,18 +289,157 @@ HttpObserver.saveHttpHeaders = function(respDirPromise, respBasePath, http, topi
 		return Promise.all([certsSavePromise, file.write(array)]);
 	});
 };
-HttpObserver.saveCacheEntry = function(respDirPromise, respBasePath, url) {
+HttpObserver.saveCacheEntry = function(respDirPromise, respBasePath, cacheStorage, URI, siCheckData) {
 	var cacheEntryPath = OS.Path.join(respBasePath, "cache");
 	return HttpObserver.createFileToWrite(respDirPromise, cacheEntryPath, function(file) {
-		// write cache entry int file
-		// TODO
-		let out = {
-			"url": url,
-		};
-		let encoder = new TextEncoder();
-		let array = encoder.encode(JSON.stringify(out));
-		return file.write(array);
+		return HttpObserver.makeCacheEntryPromise(cacheStorage, URI)
+			.then( aEntry => {
+				if (aEntry === null) return;
+				return HttpObserver.writeCacheEntry(aEntry, file, siCheckData);
+			});
+
 	});
+};
+HttpObserver.makeCacheEntryPromise = function(cacheStorage, URI) {
+	return new Promise( (resolve, reject) => {
+		cacheStorage.asyncOpenURI(URI, "", Ci.nsICacheStorage.OPEN_READONLY, {
+			onCacheEntryCheck: function(aEntry, aApplicationCache) {
+			},
+			onCacheEntryAvailable: function(aEntry, aNew, aApplicationCache, aResult) {
+				if (aResult == Cr.NS_OK) {
+					resolve(aEntry);
+				} else if (aResult === Cr.NS_ERROR_CACHE_KEY_NOT_FOUND) {
+					resolve(null);
+				} else {
+					reject(aResult);
+				}
+			},
+		});
+	});
+};
+HttpObserver.writeCacheEntry = function(aEntry, file, siCheckData) {
+	var out = {};
+	
+	var reqHeaders = [];
+	aEntry.visitMetaData({
+		onMetaDataElement: function(key, value) {
+			switch(key) {
+				case "security-info": {
+					HttpObserver.compareSavedAndCachedSecurityInfo(value, siCheckData);
+					break;
+				}
+				case "response-head": {
+					let parsed = HttpObserver.parseCachedResponseHead(value);
+					let statusLine = parsed[0];
+					let headers    = parsed[1];
+					out[key] = {
+						"statusLine": statusLine,
+						"headers": headers,
+					};
+					break;
+				}
+				case "request-method": {
+					out["request"] = {
+						method: value
+					};
+					break;
+				}
+				default: {
+					if (key.startsWith("request-")) {
+						reqHeaders.push([key.substr("request-".length), value]);
+					} else {
+						out[key] = value;
+					}
+				}
+			}
+		}
+	});
+	if (!("request" in out)) throw Error();
+	out["request"]["headers"] = reqHeaders;
+	
+	var encoder = new TextEncoder();
+	var array = encoder.encode(JSON.stringify(out));
+	return file.write(array);
+};
+HttpObserver.parseCachedResponseHead = function(headStr) {
+	var headArr = headStr.split("\r\n");
+	if (headArr.length < 2) throw new Error();
+	if (headArr[headArr.length - 1] !== "") throw new Error();
+	var statusLine = headArr[0];
+	if (! new RegExp("^HTTP").test(statusLine)) throw new Error();
+	headArr = headArr.slice(1, -1);
+	
+	var heads = [];
+	headArr.forEach(function (element) {
+		let res = element.match(/^([^:]+): (.+)$/);
+		if (res === null) throw new Error();
+		if (res.length != 3) throw new Error();
+		var key = res[1];
+		var val = res[2];
+		heads.push([key, val]);
+	});
+	
+	return [statusLine, heads];
+};
+HttpObserver.compareSavedAndCachedSecurityInfo = function(siCachedBase64, siCheckData) {
+	var httpHeadersPromise = siCheckData[0];
+	var respBasePath       = siCheckData[1];
+	var httpHeadersPath = OS.Path.join(respBasePath, "http");
+	httpHeadersPromise
+		.then( () => OS.File.open(httpHeadersPath, {read: true, existing: true}) )
+		.then( file => {
+			return Promise.resolve()
+				.then( () => file.read() )
+				.finally( () => file.close() )
+		})
+		.then( data => JSON.parse(HttpObserver.Uint8ArrayToString(data)) )
+		.then( httpDataObj => httpDataObj["securityInfo"] )
+		.then( siDataObj => {
+			if (
+				siDataObj === null && siCachedBase64 !== null ||
+				siDataObj !== null && siCachedBase64 === null
+			) return Promise.resolve(
+				"si: " +
+				 "saved is "+ (siDataObj      === null ? "" : "not ") + "null" +
+				" but " +
+				"cached is "+ (siCachedBase64 === null ? "" : "not ") + "null"
+			);
+
+			let certFileIDs = [];
+			if (siDataObj.SSLStatus !== null) certFileIDs.push(siDataObj.SSLStatus.serverCert.cert);
+			if (siDataObj.failedCertChain !== null) {
+				siDataObj.failedCertChain.certList.forEach( certObj => {
+					certFileIDs.push(certObj.cert);
+				});
+			}
+			for (let i=0; i<certFileIDs.length; ++i) if (certFileIDs[i] !== i) throw Error();
+
+			let certPromises = certFileIDs.map( certFileID => {
+				let certPath = OS.Path.join(respBasePath, "cert" + certFileID);
+				return Promise.resolve()
+					.then( () => OS.File.open(certPath, {read: true, existing: true}) )
+					.then( file => {
+						return Promise.resolve()
+							.then( () => file.read() )
+							.finally( () => file.close() );
+					})
+					.then( data => HttpObserver.Uint8ArrayToString(data) );
+			});
+
+			return Promise.all(certPromises)
+				.then( certs => {
+					let siPacker = new SecurityInfoPacker(function(certFileID) {
+						return certs[certFileID];
+					});
+					let iStream = new BinaryInputStream(siPacker.packSecurityInfo(siDataObj));
+					let siBytes = iStream.readBytes(iStream.available());
+					let siBase64 = window.btoa(siBytes);
+					if (siCachedBase64 !== siBase64) return Promise.reject("si: saved != cached");
+				});
+		})
+		.catch( e => {
+			repl.print(e + "(" + respBasePath + ")");
+		});
 };
 HttpObserver.Uint8ArrayToString = function(bytes) {
 	var str = "";
