@@ -11,17 +11,32 @@ httpReply.stop = function() {
 };
 httpReply.start = function() {
 
-Promise.prototype.finally = function (callback) {
+Promise.prototype.finally = function(callback) {
 	let p = this.constructor;
 	return this.then(
 		value  => p.resolve(callback()).then(() => value),
 		reason => p.resolve(callback()).then(() => { throw reason })
 	);
 };
+Promise.prototype.wait = function(callback) {
+	let p = this.constructor;
+	return this.then(
+		value  => p.resolve(callback([value, null])),
+		reason => p.resolve(callback([null, reason]))
+	);
+};
+
+function Deferred() {
+	this.resolve = null;
+	this.reject  = null;
+	this.promise = new Promise( (resolve, reject) => {
+		this.resolve = resolve;
+		this.reject = reject;
+	});
+	Object.freeze(this);
+}
 
 var {classes: Cc, interfaces: Ci, results: Cr, Constructor: CC, utils: Cu} = Components;
-
-const saveFormatVersion = "1.0";
 
 const {TextDecoder, TextEncoder, OS} = Cu.import("resource://gre/modules/osfile.jsm", {});
 const homePath = OS.Path.join(OS.Constants.Path.profileDir, "HttpReply");
@@ -32,9 +47,6 @@ const cacheService = Cc["@mozilla.org/netwerk/cache-storage-service;1"].getServi
 Cu.import("resource://gre/modules/LoadContextInfo.jsm");
 
 function HttpObserver() {
-	var baseName = Date.now();
-	this.basePath = OS.Path.join(homePath, baseName);
-	this.catalogPath = OS.Path.join(this.basePath,  "catalog");
 }
 HttpObserver.onRequestTopics = [
 	//"http-on-modify-request"
@@ -47,52 +59,19 @@ HttpObserver.onResponseTopics = [
 HttpObserver.observeTopics = HttpObserver.onRequestTopics.concat(HttpObserver.onResponseTopics);
 HttpObserver.prototype = {
 	cacheStorage: cacheService.memoryCacheStorage(LoadContextInfo.default),
-	
-	catalogFile: null,
-	catalogFilePromise: null,
 	observersAdded: false,
-	prevResponseId: null,
+	respDonePromises: [],
 	
-	start: function(homeCreatedPromise) {
-		this.catalogFilePromise = Promise.resolve()
-			.then( () => OS.File.makeDir(this.basePath) )
-			.then( () => OS.File.open(this.catalogPath, {write: true, truncate: true}) )
-			.then( file => {this.catalogFile = file})
-			.then( () => {
-				// TODO: write version into separate file
-				let encoder = new TextEncoder();
-				let array = encoder.encode("#version " + saveFormatVersion + "\n");
-				return this.catalogFile.write(array);
-			})
-			.then( () => this.catalogFile.flush() )
-			.then( () => {
-				this.addObservers();
-				this.observersAdded = true;
-			});
-		this.catalogFilePromise
-			.catch( e => {
-				repl.print(e);
-			});
+	start: function() {
+		this.addObservers();
+		this.observersAdded = true;
 	},
 	
 	stop: function() {
-		this.catalogFilePromise
-			.then( () => {
-				if (this.observersAdded) {
-					this.removeObservers();
-					this.observersAdded = false;
-				}
-			})
-			.finally( () => {
-				if (this.catalogFile) {
-					return this.catalogFile.close().catch( e => {
-						repl.print(e);
-					});
-				}
-			})
-			.catch( e => {
-				repl.print(e);
-			});
+		if (this.observersAdded) {
+			this.removeObservers();
+			this.observersAdded = false;
+		}
 	},
 	
 	addObservers: function() {
@@ -125,97 +104,48 @@ HttpObserver.prototype = {
 		http.QueryInterface(Ci.nsIHttpChannel);
 		
 		
+		
 	},
 	
 	onExamineAnyResponse: function(http, topic) {
-		http.QueryInterface(Ci.nsIHttpChannel);
-		//repl.print("start " + http.URI.asciiSpec);
-		
-		var responseId = Date.now();
-		if (this.prevResponseId && responseId <= this.prevResponseId) responseId = this.prevResponseId + 1;
-		this.prevResponseId = responseId;
-		
-		var respBasePath = OS.Path.join(this.basePath, responseId);
-		var respDirPromise = this.catalogFilePromise
-			.then( () => OS.File.makeDir(respBasePath) );
-		respDirPromise
-			.catch( e => {
-				repl.print(e);
+		var respDeferred = new Deferred();
+		try {
+			this.respDonePromises.push(respDeferred.promise);
+			respDeferred.promise.catch( e => {
+				repl.print("resp err: " + e);
 			});
-		
-		var httpHeadersPromise = HttpObserver.saveHttpHeaders(respDirPromise, respBasePath, http, topic);
-		httpHeadersPromise
-			.catch( e => {
-				repl.print(e);
+
+			http.QueryInterface(Ci.nsIHttpChannel);
+			// http: prepare and send to save
+
+			http.QueryInterface(Ci.nsITraceableChannel);
+			var newListener = new TracingListener( byteArray => {
+				// data: prepare and send to save
 			});
-		// TODO: POST request data
-		
-		var respDataPath = OS.Path.join(respBasePath, "data");
-		var respDataPromise = respDirPromise
-			.then( () => OS.File.open(respDataPath, {write: true, truncate: true}) );
-		respDataPromise
-			.catch( e => {
-				repl.print(e);
-			});
-		
-		// adding new listener immediately (even maybe before output file creation)
-		// otherwise if we add listener in promise then setNewListener will throw NS_ERROR_FAILURE
-		http.QueryInterface(Ci.nsITraceableChannel);
-		var newListener = new TracingListener(respDataPromise, respDataDonePromise => {
-			respDataDonePromise
+			newListener.originalListener = http.setNewListener(newListener);
+
+			newListener.getOnDonePromise()
+				.wait( dataTraceRes => {
+					let e = dataTraceRes[1];
+					// dataStatus: save http.status and e
+				})
+				.then( () => HttpObserver.makeCacheEntryPromise(this.cacheStorage, http.URI) )
+				.then( aEntry => {
+					if (aEntry === null) return;
+					// cache: prepare and send to save
+				})
+				.then( () => {
+					respDeferred.resolve();
+				})
 				.catch( e => {
-					repl.print(e);
+					respDeferred.reject(e);
 				});
-			// TODO: if traced data length == 0 then save data from cache entry
-			var cacheEntryPromise = HttpObserver.saveCacheEntry(
-				respDirPromise,
-				respBasePath,
-				this.cacheStorage,
-				http.URI,
-				[httpHeadersPromise, respBasePath]
-			);
-			cacheEntryPromise
-				.catch( e => {
-					repl.print(e);
-				});
-			this.addCatalogRecord(
-				Promise.all([
-					httpHeadersPromise,
-					respDataDonePromise,
-					cacheEntryPromise
-				]),
-				responseId,
-				http.URI.asciiSpec
-			);
-		});
-		newListener.originalListener = http.setNewListener(newListener);
+		} catch(e) {
+			respDeferred.reject(e);
+		}
 	},
-	
-	addCatalogRecord: function(respAllDonePromise, responseId, url) {
-		this.catalogFilePromise = respAllDonePromise
-			.then(
-				() => {
-					return Promise.resolve()
-						.then( () => {
-							let encoder = new TextEncoder();
-							let array = encoder.encode(responseId + " " + url + "\n");
-							return this.catalogFile.write(array);
-						})
-						.then( () => this.catalogFile.flush() );
-				},
-				e => {
-					repl.print(e);
-				}
-			)
-			.then( () => {
-				//repl.print("done  " + url);
-			});
-		this.catalogFilePromise
-			.catch( e => {
-				repl.print(e);
-			});
-	}
 };
+/*
 HttpObserver.createFileToWrite = function(parentPromise, filePath, writeCallback) {
 	return parentPromise
 		.then( () => OS.File.open(filePath, {write: true, truncate: true}) )
@@ -302,13 +232,14 @@ HttpObserver.saveCacheEntry = function(respDirPromise, respBasePath, cacheStorag
 
 	});
 };
+*/
 HttpObserver.makeCacheEntryPromise = function(cacheStorage, URI) {
 	return new Promise( (resolve, reject) => {
 		cacheStorage.asyncOpenURI(URI, "", Ci.nsICacheStorage.OPEN_READONLY, {
 			onCacheEntryCheck: function(aEntry, aApplicationCache) {
 			},
 			onCacheEntryAvailable: function(aEntry, aNew, aApplicationCache, aResult) {
-				if (aResult == Cr.NS_OK) {
+				if (aResult === Cr.NS_OK) {
 					resolve(aEntry);
 				} else if (aResult === Cr.NS_ERROR_CACHE_KEY_NOT_FOUND) {
 					resolve(null);
@@ -319,6 +250,7 @@ HttpObserver.makeCacheEntryPromise = function(cacheStorage, URI) {
 		});
 	});
 };
+/*
 HttpObserver.writeCacheEntry = function(aEntry, file, siCheckData) {
 	var out = {};
 	
@@ -457,17 +389,11 @@ HttpObserver.StringToUint8Array = function(str) {
 	}
 	return array;
 };
+*/
 
 this.run = function() {
-	Promise.resolve()
-		.then( () => OS.File.makeDir(homePath) )
-		.then( () => {
-			this.httpObserver = new HttpObserver();
-			this.httpObserver.start();
-		})
-		.catch( e => {
-			repl.print(e);
-		});
+	this.httpObserver = new HttpObserver();
+	this.httpObserver.start();
 };
 
 // https://developer.mozilla.org/en-US/docs/Mozilla/Tech/XPCOM/Reference/Interface/NsITraceableChannel
@@ -477,73 +403,48 @@ var BinaryOutputStream = CC('@mozilla.org/binaryoutputstream;1', 'nsIBinaryOutpu
 var Pipe = CC('@mozilla.org/pipe;1', 'nsIPipe', 'init');
 const PR_UINT32_MAX = 0xffffffff;
 
-function TracingListener(fileOpenPromise, onDone) {
-	this.filePromise = fileOpenPromise
-		.then( file => {
-			this.file = file;
-		});
-	this.onDone = onDone;
+function TracingListener(onData) {
+	this.onData = onData;
+	this.deferred = new Deferred();
 }
 TracingListener.prototype = {
 	originalListener: null,
-	file: null,
+	bytesCount: 0,
 
+	getOnDonePromise: function() {
+		return this.deferred.promise;
+	},
 	onDataAvailable: function(aRequest, aContext, aInputStream, aOffset, aCount) {
+		var iStream = new BinaryInputStream(aInputStream);
+		var pipe = new Pipe(false, false, 0, PR_UINT32_MAX, null);
+		var oStream = new BinaryOutputStream(pipe.outputStream);
+
+		var data = iStream.readByteArray(aCount);
+		oStream.writeByteArray(data, aCount);
+
 		try {
-			var iStream = new BinaryInputStream(aInputStream);
-			var pipe = new Pipe(false, false, 0, PR_UINT32_MAX, null);
-			var oStream = new BinaryOutputStream(pipe.outputStream);
-
-			var data = iStream.readByteArray(aCount);
-			oStream.writeByteArray(data, aCount);
-
-			this.filePromise = this.filePromise.then( () => this.file.write(new Uint8Array(data)) );
-
-			this.originalListener.onDataAvailable(aRequest, aContext, pipe.inputStream, aOffset, aCount);
+			this.onData(data);
+			this.bytesCount += aCount;
 		} catch(e) {
 			repl.print(e);
 		}
+
+		this.originalListener.onDataAvailable(aRequest, aContext, pipe.inputStream, aOffset, aCount);
 	},
 	onStartRequest: function(aRequest, aContext) {
-		try {
-			this.originalListener.onStartRequest(aRequest, aContext);
-		} catch(e) {
-			repl.print(e);
-		}
+		this.originalListener.onStartRequest(aRequest, aContext);
 	},
 	onStopRequest: function(aRequest, aContext, aStatusCode) {
 		try {
 			this.originalListener.onStopRequest(aRequest, aContext, aStatusCode);
-			
-			if (aStatusCode !== Cr.NS_OK) {
-				// TODO
-				if (!(
-					aStatusCode === Cr.NS_BINDING_ABORTED ||
-					aStatusCode === 0x805303F4 ||				// NS_ERROR_DOM_BAD_URI
-					aStatusCode === 0x80540005 ||				// NS_IMAGELIB_ERROR_FAILURE
-					aStatusCode === 0x805D0021 ||				// NS_ERROR_PARSED_DATA_CACHED
-					aStatusCode === Cr.NS_ERROR_NET_INTERRUPT
-				)) {
-					this.filePromise = this.filePromise.then( () => Promise.reject(aStatusCode) );
-				}
+			if (aStatusCode === Cr.NS_OK) {
+				this.deferred.resolve(this.bytesCount);
+			} else {
+				this.deferred.reject(aStatusCode);
 			}
-			
-			this.filePromise = this.filePromise
-				.finally( () => {
-					if (this.file) {
-						return this.file.close().catch( e => {
-							repl.print(e);
-						});
-					}
-				});
 		} catch(e) {
-			repl.print(e);
-		}
-		
-		try {
-			this.onDone(this.filePromise);
-		} catch(e) {
-			repl.print(e);
+			this.deferred.reject(e);
+			throw e;
 		}
 	},
 };
