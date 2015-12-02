@@ -21,9 +21,26 @@ Promise.prototype.finally = function(callback) {
 Promise.prototype.wait = function(callback) {
 	let p = this.constructor;
 	return this.then(
-		value  => p.resolve(callback([value, null])),
-		reason => p.resolve(callback([null, reason]))
+		value  => p.resolve(callback([false, value])),
+		reason => p.resolve(callback([true, reason]))
 	);
+};
+function PromiseWaitAll(promiseArr) {
+	return Promise.all(
+		promiseArr.map(
+			promise => promise.then(
+				value  => [false, value],
+				reason => [true, reason]
+			)
+		)
+	).then( resArr => {
+		let errRes = resArr.find( res => res[0] );
+		if (errRes === undefined) {
+			return Promise.resolve(resArr.map( res => res[1] ));
+		} else {
+			return Promise.reject(errRes[1]);
+		}
+	});
 };
 
 function Deferred() {
@@ -114,26 +131,8 @@ HttpObserver.prototype = {
 			respDeferred.promise.catch( e => {
 				repl.print("resp err: " + e);
 			});
-
-			http.QueryInterface(Ci.nsIHttpChannel);
-			// http: prepare and send to save
-
-			http.QueryInterface(Ci.nsITraceableChannel);
-			var newListener = new TracingListener( byteArray => {
-				// data: prepare and send to save
-			});
-			newListener.originalListener = http.setNewListener(newListener);
-
-			newListener.getOnDonePromise()
-				.wait( dataTraceRes => {
-					let e = dataTraceRes[1];
-					// dataStatus: save http.status and e
-				})
-				.then( () => HttpObserver.makeCacheEntryPromise(this.cacheStorage, http.URI) )
-				.then( aEntry => {
-					if (aEntry === null) return;
-					// cache: prepare and send to save
-				})
+			
+			this.onExamineAnyResponseImpl(http, topic)
 				.then( () => {
 					respDeferred.resolve();
 				})
@@ -143,6 +142,32 @@ HttpObserver.prototype = {
 		} catch(e) {
 			respDeferred.reject(e);
 		}
+	},
+
+	onExamineAnyResponseImpl: function(http, topic) {
+		http.QueryInterface(Ci.nsIHttpChannel);
+		var httpPromise = Promise.resolve()
+			.then( () => {
+				// http: prepare and send to save
+			});
+
+		http.QueryInterface(Ci.nsITraceableChannel);
+		var newListener = new TracingListener( byteArray => {
+			// data: prepare and send to save
+		});
+		newListener.originalListener = http.setNewListener(newListener);
+
+		var dataAndCachePromise = newListener.getOnDonePromise()
+			.wait( dataTraceRes => {
+				// dataStatus: save http.status and (maybe) err
+			})
+			.then( () => HttpObserver.makeCacheEntryPromise(this.cacheStorage, http.URI) )
+			.then( aEntry => {
+				if (aEntry === null) return;
+				// cache: prepare and send to save
+			});
+		
+		return PromiseWaitAll([httpPromise, dataAndCachePromise]);
 	},
 };
 /*
