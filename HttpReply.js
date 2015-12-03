@@ -25,7 +25,7 @@ Promise.prototype.wait = function(callback) {
 		reason => p.resolve(callback([true, reason]))
 	);
 };
-function PromiseWaitAll(promiseArr) {
+function promiseWaitAll(promiseArr) {
 	return Promise.all(
 		promiseArr.map(
 			promise => promise.then(
@@ -52,11 +52,14 @@ function Deferred() {
 	});
 	Object.freeze(this);
 }
+function tiePromiseWithDeferred(promise, deferred) {
+	promise.then(
+		v => {deferred.resolve(v)},
+		e => {deferred.reject (e)}
+	);
+}
 
 var {classes: Cc, interfaces: Ci, results: Cr, Constructor: CC, utils: Cu} = Components;
-
-const {TextDecoder, TextEncoder, OS} = Cu.import("resource://gre/modules/osfile.jsm", {});
-const homePath = OS.Path.join(OS.Constants.Path.profileDir, "HttpReply");
 
 const observerService = Cc["@mozilla.org/observer-service;1"].getService(Ci.nsIObserverService);
 
@@ -171,7 +174,7 @@ HttpObserver.prototype = {
 				// TODO cache: send to save
 			});
 		
-		return PromiseWaitAll([httpPromise, dataAndCachePromise]);
+		return promiseWaitAll([httpPromise, dataAndCachePromise]);
 	},
 };
 HttpObserver.prepareHttp = function(http, topic) {
@@ -215,7 +218,7 @@ HttpObserver.prepareHttp = function(http, topic) {
 	
 	var out = {"http": httpDataObj};
 	if ("certs" in si) out["certs"] = si["certs"];
-	if ("securityInfoBytes" in si) out["securityInfoBytes"] = si["securityInfoBytes"];
+	if ("securityInfoRaw" in si) out["securityInfoRaw"] = si["securityInfoRaw"];
 	
 	return out;
 };
@@ -224,8 +227,8 @@ HttpObserver.prepareHttpSecurityInfo = function(securityInfo) {
 	try {
 		var certCount = 0;
 		var certs = [];
-		var siDataObj = new SecurityInfoParser( bytes => {
-			certs[certCount] = bytes;
+		var siDataObj = new SecurityInfoParser( byteArray => {
+			certs[certCount] = byteArray;
 			return certCount++;
 		}).parseSecurityInfo(securityInfo);
 		var out = {
@@ -235,8 +238,8 @@ HttpObserver.prepareHttpSecurityInfo = function(securityInfo) {
 		return out;
 	} catch(e) {
 		repl.print("parseSecurityInfo error: " + e);
-		var siBytes = SecurityInfoParser.getSerializedSecurityInfo(securityInfo);
-		return {"securityInfoBytes": siBytes};
+		var siByteArray = SecurityInfoParser.getSerializedSecurityInfo(securityInfo);
+		return {"securityInfoRaw": siByteArray};
 	}
 };
 HttpObserver.prepareHttpStatus = function(httpStatus, dataError) {
@@ -334,22 +337,6 @@ HttpObserver.parseCachedResponseHead = function(headStr) {
 	
 	return [statusLine, heads];
 };
-/*
-HttpObserver.Uint8ArrayToString = function(bytes) {
-	var str = "";
-	for (let i = 0; i < bytes.length; i++) {
-		str += String.fromCharCode(bytes[i]);
-	}
-	return str;
-};
-HttpObserver.StringToUint8Array = function(str) {
-	var array = new Uint8Array(new ArrayBuffer(str.length));
-	for(i = 0; i < str.length; i++) {
-		array[i] = str.charCodeAt(i);
-	}
-	return array;
-};
-*/
 
 this.run = function() {
 	this.httpObserver = new HttpObserver();
@@ -438,9 +425,9 @@ SecurityInfoParser.getSerializedSecurityInfoStream = function(securityInfo) {
 };
 SecurityInfoParser.getSerializedSecurityInfo = function(securityInfo) {
 	var iStream = SecurityInfoParser.getSerializedSecurityInfoStream(securityInfo);
-	var siBytes = iStream.readBytes(iStream.available());
+	var siByteArray = iStream.readByteArray(iStream.available());
 	iStream.close();
-	return siBytes;
+	return siByteArray;
 };
 SecurityInfoParser.prototype = {
 	parseSecurityInfo: function(securityInfo) {
@@ -534,9 +521,9 @@ SecurityInfoParser.prototype = {
 		outObj["cachedEVStatus"] = iStream.read32();
 
 		var certLen = iStream.read32();
-		var certBytes = iStream.readBytes(certLen);
+		var certByteArray = iStream.readByteArray(certLen);
 		//outObj["len"] = certLen;
-		outObj["cert"] = this.certWriter(certBytes);
+		outObj["cert"] = this.certWriter(certByteArray);
 	},
 	parseFailedCertChainStream: function(iStream, outObj) {
 		var cid = SecurityInfoParser.readID(iStream);
@@ -642,7 +629,7 @@ SecurityInfoPacker.prototype = {
 		var cert = this.certReader(inObj["cert"]);
 		var len = cert.length;
 		oStream.write32(len);
-		oStream.writeBytes(cert, len);
+		oStream.writeByteArray(cert, len);
 	},
 	packFailedCertChainStream: function(oStream, inObj) {
 		SecurityInfoParser.writeID(oStream, SecurityInfo.nsX509CertListID);
@@ -662,6 +649,241 @@ SecurityInfoParser.writeID = function(oStream, ID) {
 	for (let i = 0; i < 8; ++i) {
 		oStream.write8(ID[3][i]);
 	}
+};
+
+const {TextDecoder, TextEncoder, OS} = Cu.import("resource://gre/modules/osfile.jsm", {});
+
+// DM -- DataModel
+function DMRoot() {
+	this.basePath = OS.Path.join(OS.Constants.Path.profileDir, "HttpReply");
+	this.promise = Promise.resolve()
+		.then( () => OS.File.makeDir(this.basePath) );
+	this.promise
+		.catch( e => {
+			repl.print(e);
+		});
+	this.deferred = new Deferred();
+}
+DMRoot.prototype = {
+	isObsCreated: false,
+	prevObservationId: null,
+	
+	getOnDonePromise: function() {
+		return this.deferred.promise;
+	},
+	
+	createObservation: function() {
+		if (this.isObsCreated) throw Error(); // (for now) support only one Observation in time
+		this.isObsCreated = true;
+		
+		var observationId = Date.now();
+		if (this.prevObservationId && observationId <= this.prevObservationId) observationId = this.prevObservationId + 1;
+		this.prevObservationId = observationId;
+		
+		var obsBasePath = OS.Path.join(this.basePath, observationId);
+		var observation = new DMObservation(obsBasePath, this.promise);
+		tiePromiseWithDeferred(observation.getOnDonePromise(), this.deferred);
+		return observation;
+	},
+	
+	finish: function() {
+		if (! this.isObsCreated) this.deferred.resolve();
+	},
+};
+
+function DMObservation(basePath, parentPromise) {
+	this.basePath = basePath;
+	this.promise = parentPromise
+		.then( () => OS.File.makeDir(this.basePath) );
+	this.promise
+		.catch( e => {
+			repl.print(e);
+		});
+	this.deferred = new Deferred();
+}
+DMObservation.prototype = {
+	isStopped: false,
+	prevResponseId: null,
+	respPromises: [],
+	
+	getOnDonePromise: function() {
+		return this.deferred.promise;
+	},
+	
+	createResponse: function() {
+		if (this.isStopped) throw Error();
+		
+		var responseId = Date.now();
+		if (this.prevResponseId && responseId <= this.prevResponseId) responseId = this.prevResponseId + 1;
+		this.prevResponseId = responseId;
+		
+		var respBasePath = OS.Path.join(this.basePath, responseId);
+		var response = new DMResponse(respBasePath, this.promise);
+		this.respPromises.push(response.getOnDonePromise());
+		return response;
+	},
+	
+	finish: function() {
+		this.isStopped = true;
+		
+		var promiseArr = [].concat(this.promise, this.respPromises);
+		tiePromiseWithDeferred(promiseWaitAll(promiseArr), this.deferred);
+	},
+};
+
+function DMResponse(basePath, parentPromise) {
+	this.basePath = basePath;
+	this.promise = parentPromise
+		.then( () => OS.File.makeDir(this.basePath) );
+	this.promise
+		.catch( e => {
+			repl.print(e);
+		});
+	
+	this.httpDeferred = new Deferred();
+	this.dataDeferred = new Deferred();
+	this.httpStatusDeferred = new Deferred();
+	this.cacheEntryDeferred = new Deferred();
+	
+	var promiseArr = [
+		this.promise,
+		this.httpDeferred.promise,
+		this.dataDeferred.promise,
+		this.httpStatusDeferred.promise,
+		this.cacheEntryDeferred.promise,
+	];
+	this.onDonePromise = promiseWaitAll(promiseArr);
+}
+DMResponse.prototype = {
+	httpTied: false,
+	dataTied: false,
+	httpStatusTied: false,
+	cacheEntryTied: false,
+
+	getOnDonePromise: function() {
+		return this.onDonePromise;
+	},
+	
+	// data -- TypedArray (for example Uint8Array)
+	prepareSaveDataPromise: function(fileName, data) {
+		var filePath = OS.Path.join(this.basePath, fileName);
+		var savePromise = this.promise
+			.then( () => OS.File.open(filePath, {write: true, truncate: true}) )
+			.then(
+				file => Promise.resolve()
+					.then( () => file.write(data) )
+					.finally( () => file.close() )
+			);
+		savePromise
+			.catch( e => {
+				repl.print(e);
+			});
+		return savePromise;
+	},
+	
+	// data -- ByteArray
+	prepareSaveByteArrayPromise: function(fileName, data) {
+		return this.prepareSaveDataPromise(fileName, new Uint8Array(data));
+	},
+	
+	prepareSaveDataObjPromise: function(fileName, dataObj) {
+		let encoder = new TextEncoder();
+		let array = encoder.encode(JSON.stringify(dataObj));
+		return this.prepareSaveDataPromise(fileName, array);
+	},
+	
+	saveHttp: function(obj) {
+		var promiseArr = [];
+		{
+			if (!("http" in obj)) throw Error();
+			let httpDataObj = obj["http"];
+			let httpPromise = this.prepareSaveDataObjPromise("http", httpDataObj);
+			promiseArr.push(httpPromise);
+		}
+		if ("certs" in obj) {
+			let certs = obj["certs"];
+			certs.forEach( (cert, i) => {
+				let certPromise = this.prepareSaveByteArrayPromise("cert" + i, cert);
+				promiseArr.push(certPromise);
+			});
+		};
+		if ("securityInfoRaw" in obj) {
+			let siByteArray = obj["securityInfoRaw"];
+			let siPromise = this.prepareSaveByteArrayPromise("securityInfoRaw", siByteArray);
+			promiseArr.push(siPromise);
+		};
+		tiePromiseWithDeferred(promiseWaitAll(promiseArr), this.httpDeferred);
+		this.httpTied = true;
+	},
+	
+	createData: function() {
+		var dataFilePath = OS.Path.join(this.basePath, "data");
+		var dmData = new DMData(dataFilePath, this.promise);
+		tiePromiseWithDeferred(dmData.getOnDonePromise(), this.dataDeferred);
+		this.dataTied = true;
+		return dmData;
+	},
+	
+	saveHttpStatus: function(dataObj) {
+		var httpStatusPromise = this.prepareSaveDataObjPromise("status", dataObj);
+		tiePromiseWithDeferred(httpStatusPromise, this.httpStatusDeferred);
+		this.httpStatusTied = true;
+	},
+	
+	// if null then don't save anything
+	saveCacheEntry: function(dataObj) {
+		if (dataObj === null) {
+			this.cacheEntryDeferred.resolve();
+			return;
+		}
+		var cacheEntryPromise = this.prepareSaveDataObjPromise("cache", dataObj);
+		tiePromiseWithDeferred(cacheEntryPromise, this.cacheEntryDeferred);
+		this.cacheEntryTied = true;
+	},
+	
+	interrupt: function() {
+		if (! this.httpTied) this.httpDeferred.resolve();
+		if (! this.dataTied) this.dataDeferred.resolve();
+		if (! this.httpStatusTied) this.httpStatusDeferred.resolve();
+		if (! this.cacheEntryTied) this.cacheEntryDeferred.resolve();
+	},
+};
+
+function DMData(filePath, parentPromise) {
+	this.promise = parentPromise
+		.then( () => OS.File.open(filePath, {write: true, truncate: true}) )
+		.then( file => {this.file = file} );
+	this.promise
+		.catch( e => {
+			repl.print(e);
+		});
+	this.deferred = new Deferred();
+}
+DMData.prototype = {
+	getOnDonePromise: function() {
+		return this.deferred.promise;
+	},
+	
+	// data -- TypedArray (for example Uint8Array)
+	write: function(data) {
+		this.promise = this.promise
+			.then( () => this.file.write(data) );
+		this.promise
+			.catch( e => {
+				repl.print(e);
+			});
+	},
+	
+	// data -- ByteArray
+	writeByteArray: function(data) {
+		this.write(new Uint8Array(data));
+	},
+	
+	close: function() {
+		var donePromise = this.promise
+			.finally( () => this.file.close() );
+		tiePromiseWithDeferred(donePromise, this.deferred);
+	},
 };
 
 this.run();
