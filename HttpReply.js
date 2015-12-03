@@ -7,6 +7,7 @@ httpReply.stop = function() {
 	if (this.httpObserver) {
 		this.httpObserver.stop();
 		this.httpObserver = null;
+		this.dmRoot.finish();
 	}
 };
 httpReply.start = function() {
@@ -66,7 +67,9 @@ const observerService = Cc["@mozilla.org/observer-service;1"].getService(Ci.nsIO
 const cacheService = Cc["@mozilla.org/netwerk/cache-storage-service;1"].getService(Ci.nsICacheStorageService);
 Cu.import("resource://gre/modules/LoadContextInfo.jsm");
 
-function HttpObserver() {
+function HttpObserver(dmObservation) {
+	this.dmObservation = dmObservation;
+	this.deferred = new Deferred();
 }
 HttpObserver.onRequestTopics = [
 	//"http-on-modify-request"
@@ -82,6 +85,10 @@ HttpObserver.prototype = {
 	observersAdded: false,
 	respDonePromises: [],
 	
+	getOnDonePromise: function() {
+		return this.deferred.promise;
+	},
+	
 	start: function() {
 		this.addObservers();
 		this.observersAdded = true;
@@ -92,6 +99,9 @@ HttpObserver.prototype = {
 			this.removeObservers();
 			this.observersAdded = false;
 		}
+		var donePromise = promiseWaitAll(this.respDonePromises);
+		tiePromiseWithDeferred(donePromise, this.deferred);
+		this.dmObservation.finish();
 	},
 	
 	addObservers: function() {
@@ -134,44 +144,55 @@ HttpObserver.prototype = {
 			respDeferred.promise.catch( e => {
 				repl.print("resp err: " + e);
 			});
-			this.onExamineAnyResponseImpl(http, topic)
-				.then( () => {
-					respDeferred.resolve();
-				})
-				.catch( e => {
-					respDeferred.reject(e);
-				});
+			
+			var dmResponse = this.dmObservation.createResponse();
+			respDeferred.promise.catch( () => {
+				dmResponse.interrupt();
+			});
+			
+			var respPromise = this.onExamineAnyResponseImpl(http, topic, dmResponse);
+			tiePromiseWithDeferred(respPromise, respDeferred);
 		} catch(e) {
 			respDeferred.reject(e);
 		}
 	},
 
-	onExamineAnyResponseImpl: function(http, topic) {
+	onExamineAnyResponseImpl: function(http, topic, dmResponse) {
 		http.QueryInterface(Ci.nsIHttpChannel);
 		var httpPromise = Promise.resolve()
 			.then( () => {
 				let outHttp = HttpObserver.prepareHttp(http, topic);
-				// TODO http: send to save
+				dmResponse.saveHttp(outHttp);
 			});
 
-		http.QueryInterface(Ci.nsITraceableChannel);
-		var newListener = new TracingListener( byteArray => {
-			// TODO data: send to write
-		});
-		newListener.originalListener = http.setNewListener(newListener);
+		var dmData = dmResponse.createData();
+		try {
+			http.QueryInterface(Ci.nsITraceableChannel);
+			var newListener = new TracingListener( byteArray => {
+				dmData.writeByteArray(byteArray);
+			});
+			newListener.originalListener = http.setNewListener(newListener);
+		} catch(e) {
+			dmData.close();
+			throw e;
+		}
 
 		var dataAndCachePromise = newListener.getOnDonePromise()
 			.wait( tracingRes => {
-				// TODO data: close(err?)
+				dmData.close();
 				let tracingErr = (tracingRes[0] ? tracingRes[1] : null);
 				let outHttpStatus = HttpObserver.prepareHttpStatus(http.status, tracingErr);
-				// TODO httpStatus: send to save
+				dmResponse.saveHttpStatus(outHttpStatus);
 			})
 			.then( () => HttpObserver.makeCacheEntryPromise(this.cacheStorage, http.URI) )
 			.then( aEntry => {
-				if (aEntry === null) return;
-				let outCacheEntry = HttpObserver.prepareCacheEntry(aEntry);
-				// TODO cache: send to save
+				let outCacheEntry;
+				if (aEntry === null) {
+					outCacheEntry = null;
+				} else {
+					outCacheEntry = HttpObserver.prepareCacheEntry(aEntry);
+				}
+				dmResponse.saveCacheEntry(outCacheEntry);
 			});
 		
 		return promiseWaitAll([httpPromise, dataAndCachePromise]);
@@ -339,7 +360,18 @@ HttpObserver.parseCachedResponseHead = function(headStr) {
 };
 
 this.run = function() {
-	this.httpObserver = new HttpObserver();
+	this.dmRoot = new DMRoot();
+	this.dmRoot.getOnDonePromise()
+		.then(
+			() => {repl.print("dm: done")},
+			e  => {repl.print("dm err: " + e)}
+		);
+	this.httpObserver = new HttpObserver(this.dmRoot.createObservation());
+	this.httpObserver.getOnDonePromise()
+		.then(
+			() => {repl.print("obs: done")},
+			e  => {repl.print("obs err: " + e)}
+		);
 	this.httpObserver.start();
 };
 
