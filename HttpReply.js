@@ -613,10 +613,10 @@ SecurityInfoPacker.prototype = {
 		return pipe.inputStream;
 	},
 	packSecurityInfoStream: function(oStream, inObj) {
-		SecurityInfoParser.writeID(oStream, SecurityInfo.TransportSecurityInfoID);
-		SecurityInfoParser.writeID(oStream, SecurityInfo.nsISupportsID);
+		SecurityInfoPacker.writeID(oStream, SecurityInfo.TransportSecurityInfoID);
+		SecurityInfoPacker.writeID(oStream, SecurityInfo.nsISupportsID);
 
-		SecurityInfoParser.writeID(oStream, SecurityInfo.TransportSecurityInfoMagic);
+		SecurityInfoPacker.writeID(oStream, SecurityInfo.TransportSecurityInfoMagic);
 
 		oStream.write32(inObj["securityState"]);
 		oStream.write32(inObj["subRequestsBrokenSecurity"]);
@@ -637,8 +637,8 @@ SecurityInfoPacker.prototype = {
 		}
 	},
 	packSSLStatusStream: function(oStream, inObj) {
-		SecurityInfoParser.writeID(oStream, SecurityInfo.nsSSLStatusID);
-		SecurityInfoParser.writeID(oStream, SecurityInfo.nsISSLStatusID);
+		SecurityInfoPacker.writeID(oStream, SecurityInfo.nsSSLStatusID);
+		SecurityInfoPacker.writeID(oStream, SecurityInfo.nsISSLStatusID);
 
 		this.packCertStream(oStream, inObj["serverCert"]);
 
@@ -653,8 +653,8 @@ SecurityInfoPacker.prototype = {
 		oStream.writeBoolean(inObj["haveCertErrorBits"]);
 	},
 	packCertStream: function(oStream, inObj) {
-		SecurityInfoParser.writeID(oStream, SecurityInfo.nsNSSCertificateID);
-		SecurityInfoParser.writeID(oStream, SecurityInfo.nsIX509CertID);
+		SecurityInfoPacker.writeID(oStream, SecurityInfo.nsNSSCertificateID);
+		SecurityInfoPacker.writeID(oStream, SecurityInfo.nsIX509CertID);
 
 		oStream.write32(inObj["cachedEVStatus"]);
 
@@ -664,8 +664,8 @@ SecurityInfoPacker.prototype = {
 		oStream.writeByteArray(cert, len);
 	},
 	packFailedCertChainStream: function(oStream, inObj) {
-		SecurityInfoParser.writeID(oStream, SecurityInfo.nsX509CertListID);
-		SecurityInfoParser.writeID(oStream, SecurityInfo.nsIX509CertListID);
+		SecurityInfoPacker.writeID(oStream, SecurityInfo.nsX509CertListID);
+		SecurityInfoPacker.writeID(oStream, SecurityInfo.nsIX509CertListID);
 
 		var certList = inObj["certList"];
 		oStream.write32(certList.length);
@@ -674,13 +674,24 @@ SecurityInfoPacker.prototype = {
 		}
 	},
 };
-SecurityInfoParser.writeID = function(oStream, ID) {
+SecurityInfoPacker.writeID = function(oStream, ID) {
 	oStream.write32(ID[0]);
 	oStream.write16(ID[1]);
 	oStream.write16(ID[2]);
 	for (let i = 0; i < 8; ++i) {
 		oStream.write8(ID[3][i]);
 	}
+};
+SecurityInfoPacker.getCertFileIDs = function(siDataObj) {
+	var certFileIDs = [];
+	if (siDataObj.SSLStatus !== null) certFileIDs.push(siDataObj.SSLStatus.serverCert.cert);
+	if (siDataObj.failedCertChain !== null) {
+		siDataObj.failedCertChain.certList.forEach( certObj => {
+			certFileIDs.push(certObj.cert);
+		});
+	}
+	for (let i=0; i<certFileIDs.length; ++i) if (certFileIDs[i] !== i) throw Error();
+	return certFileIDs;
 };
 
 const {TextDecoder, TextEncoder, OS} = Cu.import("resource://gre/modules/osfile.jsm", {});
