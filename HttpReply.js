@@ -311,7 +311,7 @@ HttpObserver.prepareCacheEntry = function(aEntry) {
 					let parsed = HttpObserver.parseCachedResponseHead(value);
 					let statusLine = parsed[0];
 					let headers    = parsed[1];
-					out[key] = {
+					out["response"] = {
 						"statusLine": statusLine,
 						"headers": headers,
 					};
