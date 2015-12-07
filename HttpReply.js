@@ -929,7 +929,163 @@ DMData.prototype = {
 	},
 };
 
-this.run();
+var cacheStorage = cacheService.memoryCacheStorage(LoadContextInfo.default);
+
+var ioService = Cc["@mozilla.org/network/io-service;1"].getService(Ci.nsIIOService);
+
+var CacheFiller = {};
+CacheFiller.loadObservationData = function(observationId) {
+	try {
+		var homePath = OS.Path.join(OS.Constants.Path.profileDir, "HttpReply");
+		var obsPath = OS.Path.join(homePath, observationId);
+		CacheFiller.prepareLoadObservationPromise(obsPath)
+			.then( () => {repl.print("done")} )
+			.catch( e => {repl.print(e)} );
+	} catch(e) {
+		repl.print(e);
+	}
+};
+CacheFiller.prepareLoadObservationPromise = function(basePath) {
+	return Promise.resolve()
+		.then( () => new OS.File.DirectoryIterator(basePath) )
+		.then(
+			iterator => Promise.resolve()
+				.then( () => iterator.nextBatch() )
+				.then( entries => {
+					let childPromises = entries.map(
+						entry => CacheFiller.prepareLoadResponsePromise(entry.path)
+					);
+					return Promise.all(childPromises);
+				})
+				.finally( () => iterator.close() )
+		);
+};
+CacheFiller.prepareLoadResponsePromise = function(basePath) {
+	return Promise.resolve()
+		.then( () => new OS.File.DirectoryIterator(basePath) )
+		.then(
+			iterator => Promise.resolve()
+				.then( () => iterator.nextBatch() )
+				.finally( () => iterator.close() )
+		)
+		.then( fileNames => CacheFiller.prepareLoadResponseFilesPromise(basePath, fileNames) )
+		.catch( e => {throw Error(e + "(" + basePath + ")")} );
+};
+CacheFiller.prepareLoadResponseFilesPromise = function(basePath, fileNames) {
+	var dataPromise = OS.File.read(OS.Path.join(basePath, "data"));
+	var dataLengthPromise = dataPromise.then( data => data.length );
+	
+	var httpPromise = Promise.resolve()
+		.then( () => OS.File.read(OS.Path.join(basePath, "http")) )
+		.then( data => {
+			let decoder = new TextDecoder();
+			let str = decoder.decode(data);
+			return JSON.parse(str);
+		});
+	
+	var cacheEntryPromise = httpPromise
+		.then( httpDataObj => {
+			let uriSpec = httpDataObj.request.URI;
+			let uri = CacheFiller.makeURIFromSpec(uriSpec);
+			return cacheStorage.openTruncate(uri, "");
+		});
+	
+	var siBase64Promise = httpPromise
+		.then( httpDataObj => {
+			if (!("securityInfo" in httpDataObj)) return Promise.reject("http.securityInfo is not exist");
+			if (httpDataObj["securityInfo"] === null) return null;
+			let siDataObj = httpDataObj["securityInfo"];
+			
+			let certFileIDs = SecurityInfoPacker.getCertFileIDs(siDataObj);
+			let certPromises = certFileIDs.map(
+				certFileID => OS.File.read(OS.Path.join(basePath, "cert" + certFileID))
+			);
+			return Promise.all(certPromises)
+				.then( certs => {
+					let siPacker = new SecurityInfoPacker( certFileID => certs[certFileID] );
+					let iStream = new BinaryInputStream(siPacker.packSecurityInfo(siDataObj));
+					let bytes = iStream.readBytes(iStream.available());
+					return window.btoa(bytes); // TODO: use base64 encoder stream
+				});
+		});
+	
+	var cachePromise = Promise.resolve()
+		.then( () => OS.File.read(OS.Path.join(basePath, "cache")) )
+		.then( data => {
+			let decoder = new TextDecoder();
+			let str = decoder.decode(data);
+			return JSON.parse(str);
+		});
+	
+	var cacheMetaPromise = Promise.all([cachePromise, siBase64Promise, dataLengthPromise])
+		.then( values => {
+			let dataObj = values[0];
+			let siBase64 = values[1];
+			let dataLength = values[2];
+		
+			let meta = {};
+			for (let key in dataObj) {
+				if (key === "request" || key === "response") continue;
+				meta[key] = dataObj[key];
+			}
+			
+			{
+				let reqObj = dataObj["request"];
+				meta["request-method"] = reqObj["method"];
+				let reqHeaders = reqObj["headers"];
+				reqHeaders.forEach( header => {
+					meta["request-" + header[0]] = header[1];
+				});
+			}
+			
+			{
+				let respLines = [];
+				let respObj = dataObj["response"];
+				respLines.push(respObj["statusLine"]);
+				let respHeaders = respObj["headers"];
+				respHeaders.forEach( header => {
+					let key = header[0];
+					let val = header[1];
+					if (key === "Content-Encoding") return;
+					if (key === "Content-Length") value = dataLength;
+					respLines.push(key + ": " + val);
+				});
+				meta["response-head"] = respLines.map( line => line+"\r\n" ).join("");
+			}
+			
+			if (siBase64 !== null) meta["security-info"] = siBase64;
+			
+			return meta;
+		});
+	
+	return Promise.all([cacheEntryPromise, cacheMetaPromise, dataPromise])
+		.then( values => {
+			let aEntry = values[0];
+			let meta = values[1];
+			let data = values[2];
+			
+			for (let key in meta) {
+				aEntry.setMetaDataElement(key, meta[key]);
+			}
+			
+			aEntry.setExpirationTime(Ci.nsICacheEntry.NO_EXPIRATION_TIME);
+			
+			let oStream = new BinaryOutputStream(aEntry.openOutputStream(0));
+			oStream.writeByteArray(data, data.length);
+			oStream.close();
+		});
+	
+};
+CacheFiller.makeURIFromSpec = function(spec) {
+	return ioService.newURI(spec, null, null);
+};
+
+this.runReply = function() {
+	CacheFiller.loadObservationData("1449374400000");
+};
+
+//this.run();
+this.runReply();
 }
 httpReply.start();
 
