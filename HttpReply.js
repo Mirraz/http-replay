@@ -813,12 +813,7 @@ DMResponse.prototype = {
 	prepareSaveDataPromise: function(fileName, data) {
 		var filePath = OS.Path.join(this.basePath, fileName);
 		var savePromise = this.promise
-			.then( () => OS.File.open(filePath, {write: true, truncate: true}) )
-			.then(
-				file => Promise.resolve()
-					.then( () => file.write(data) )
-					.finally( () => file.close() )
-			);
+			.then( () => OS.File.writeAtomic(filePath, data, {noOverwrite: true, flush: true}) );
 		savePromise
 			.catch( e => {
 				repl.print(e);
