@@ -62,9 +62,11 @@ function tiePromiseWithDeferred(promise, deferred) {
 
 var {classes: Cc, interfaces: Ci, results: Cr, Constructor: CC, utils: Cu} = Components;
 
-const observerService = Cc["@mozilla.org/observer-service;1"].getService(Ci.nsIObserverService);
+Cu.import("resource://gre/modules/Services.jsm");
 
-const cacheService = Cc["@mozilla.org/netwerk/cache-storage-service;1"].getService(Ci.nsICacheStorageService);
+const observerService = Services.obs;
+
+const cacheService = Services.cache2;
 Cu.import("resource://gre/modules/LoadContextInfo.jsm");
 
 function HttpObserver(dmObservation) {
@@ -931,7 +933,7 @@ DMData.prototype = {
 
 var cacheStorage = cacheService.memoryCacheStorage(LoadContextInfo.default);
 
-var ioService = Cc["@mozilla.org/network/io-service;1"].getService(Ci.nsIIOService);
+var ioService = Services.io;
 
 var CacheFiller = {};
 CacheFiller.loadObservationData = function(observationId) {
