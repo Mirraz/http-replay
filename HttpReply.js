@@ -300,6 +300,17 @@ HttpObserver.makeCacheEntryPromise = function(cacheStorage, URI) {
 	});
 };
 HttpObserver.prepareCacheEntry = function(aEntry) {
+	var out = {
+		key:               aEntry.key,
+		expirationTime:    aEntry.expirationTime,
+		predictedDataSize: aEntry.predictedDataSize,
+		storageDataSize:   aEntry.storageDataSize,
+		dataSize:          aEntry.dataSize,
+	};
+	out["meta"] = HttpObserver.prepareCacheMeta(aEntry);
+	return out;
+};
+HttpObserver.prepareCacheMeta = function(aEntry) {
 	var out = {};
 	
 	var reqHeaders = [];
@@ -1052,18 +1063,19 @@ CacheFiller.prepareLoadFilteredResponsePromise = function(basePath, httpPromise,
 	
 	var cacheMetaPromise = Promise.all([cachePromise, siBase64Promise, dataLengthPromise])
 		.then( values => {
-			let dataObj = values[0];
+			let cacheDataObj = values[0];
 			let siBase64 = values[1];
 			let dataLength = values[2];
+			let metaDataObj = cacheDataObj.meta;
 		
 			let meta = {};
-			for (let key in dataObj) {
+			for (let key in metaDataObj) {
 				if (key === "request" || key === "response") continue;
-				meta[key] = dataObj[key];
+				meta[key] = metaDataObj[key];
 			}
 			
 			{
-				let reqObj = dataObj["request"];
+				let reqObj = metaDataObj["request"];
 				meta["request-method"] = reqObj["method"];
 				let reqHeaders = reqObj["headers"];
 				reqHeaders.forEach( header => {
@@ -1073,7 +1085,7 @@ CacheFiller.prepareLoadFilteredResponsePromise = function(basePath, httpPromise,
 			
 			{
 				let respLines = [];
-				let respObj = dataObj["response"];
+				let respObj = metaDataObj["response"];
 				respLines.push(respObj["statusLine"]);
 				let respHeaders = respObj["headers"];
 				respHeaders.forEach( header => {
