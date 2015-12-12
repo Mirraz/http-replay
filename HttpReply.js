@@ -1016,23 +1016,48 @@ CacheFiller.prepareLoadResponsePromise = function(basePath, httpPromise) {
 			if (httpDataObj.request.method !== "GET") throw null;
 		});
 	
-	var filterStatusPromise = CacheFiller.prepareLoadJsonFilePromise(OS.Path.join(basePath, "status"))
-		.then( statusDataObj => {
-			if ("tracingResult" in statusDataObj) throw null;
-			if (statusDataObj.httpStatus !== Cr.NS_OK) throw null;
-		});
-	
-	var cachePromise = CacheFiller.prepareLoadJsonFilePromise(OS.Path.join(basePath, "cache"));
-
+	var statusPromise = CacheFiller.prepareLoadJsonFilePromise(OS.Path.join(basePath, "status"));
+	var cachePromise  = CacheFiller.prepareLoadJsonFilePromise(OS.Path.join(basePath, "cache"));
 	var filterCachePromise = cachePromise
 		.catch( e => {throw null} );
 	
-	return Promise.all([filterHttpPromise, filterStatusPromise, filterCachePromise])
+	var filterStatusAndCachePromise = Promise.all([statusPromise, filterCachePromise])
+	 	.then( values => {
+	 		let statusDataObj = values[0];
+	 		let cacheDataObj = values[1];
+	 		
+			if ("tracingResult" in statusDataObj)
+				throw Error("status.tracingResult = " + tracingResult);
+			if (!(
+				statusDataObj.httpStatus === Cr.NS_OK ||
+				statusDataObj.httpStatus === Cr.NS_BINDING_REDIRECTED
+			)) throw Error("status.httpStatus = " + statusDataObj.httpStatus);
+			
+			if (statusDataObj.httpStatus === Cr.NS_BINDING_REDIRECTED && cacheDataObj.dataSize !== 0)
+				throw Error("status.httpStatus = NS_BINDING_REDIRECTED, cache.dataSize = " + cacheDataObj.dataSize);
+		});
+	
+	var filterCacheKeyPromsie = Promise.all([httpPromise, filterCachePromise])
+		.then( values => {
+			let httpDataObj = values[0];
+			let cacheDataObj = values[1];
+			let uriObj = CacheFiller.makeURIFromSpec(httpDataObj.request.URI);
+			let uri = uriObj.specIgnoringRef;
+			if (uri !== cacheDataObj.key) throw Error("http.URI = " + uri + " != cache.key = " + cacheDataObj.key);
+		});
+	
+	return Promise.all([filterHttpPromise, filterStatusAndCachePromise, filterCacheKeyPromsie])
 		.then( () => CacheFiller.prepareLoadFilteredResponsePromise(basePath, httpPromise, cachePromise) )
 		.catch( e => {if (e !== null) throw e} );
 };
 CacheFiller.prepareLoadFilteredResponsePromise = function(basePath, httpPromise, cachePromise) {
-	var dataPromise = OS.File.read(OS.Path.join(basePath, "data"));
+	var dataPromise = cachePromise
+		.then( cacheDataObj => {
+			if (cacheDataObj.dataSize !== 0)
+				return OS.File.read(OS.Path.join(basePath, "data"));
+			else
+				return [];
+		});
 	var dataLengthPromise = dataPromise.then( data => data.length );
 	
 	var cacheEntryPromise = httpPromise
