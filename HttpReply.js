@@ -948,37 +948,81 @@ CacheFiller.prepareLoadObservationPromise = function(basePath) {
 		.then(
 			iterator => Promise.resolve()
 				.then( () => iterator.nextBatch() )
-				.then( entries => {
-					let childPromises = entries.map(
-						entry => CacheFiller.prepareLoadResponsePromise(entry.path)
-					);
-					return Promise.all(childPromises);
-				})
-				.finally( () => iterator.close() )
-		);
-};
-CacheFiller.prepareLoadResponsePromise = function(basePath) {
-	return Promise.resolve()
-		.then( () => new OS.File.DirectoryIterator(basePath) )
-		.then(
-			iterator => Promise.resolve()
-				.then( () => iterator.nextBatch() )
 				.finally( () => iterator.close() )
 		)
-		.then( fileNames => CacheFiller.prepareLoadResponseFilesPromise(basePath, fileNames) )
-		.catch( e => {throw Error(e + "(" + basePath + ")")} );
+		.then( entries => CacheFiller.prepareLoadObservationDirPromise(basePath, entries) );
 };
-CacheFiller.prepareLoadResponseFilesPromise = function(basePath, fileNames) {
-	var dataPromise = OS.File.read(OS.Path.join(basePath, "data"));
-	var dataLengthPromise = dataPromise.then( data => data.length );
-	
-	var httpPromise = Promise.resolve()
-		.then( () => OS.File.read(OS.Path.join(basePath, "http")) )
+CacheFiller.prepareLoadObservationDirPromise = function(basePath, entries) {
+	var httpPromiseArr = entries.map(
+		entry => CacheFiller.prepareLoadJsonFilePromise(OS.Path.join(entry.path, "http"))
+			.then( httpDataObj => [entry.name, httpDataObj] )
+	);
+	return Promise.all(httpPromiseArr)
+		.then( results => {
+			// filter duplicates: get only latest
+			let map = {}; // uri => [id, httpDataObj]
+			results.forEach( result => {
+				let id = result[0];
+				let httpDataObj = result[1];
+				let timestamp = new Number(id);
+				if (timestamp === Number.NaN) throw Error();
+				let uriObj = CacheFiller.makeURIFromSpec(httpDataObj.request.URI);
+				let uri = uriObj.specIgnoringRef;
+				if (uri in map) {
+					let prevId = map[uri][0];
+					if (prevId < id) map[uri] = [id, httpDataObj];
+				} else {
+					map[uri] = [id, httpDataObj];
+				}
+			});
+			let idAndHttpArr = [];
+			for (uri in map) idAndHttpArr.push(map[uri]);
+			return idAndHttpArr; // array of [id, httpDataObj]
+		})
+		.then(
+			idAndHttpArr => promiseWaitAll(
+				idAndHttpArr.map( idAndHttp => {
+					let respPath = OS.Path.join(basePath, idAndHttp[0]);
+					let httpPromise = Promise.resolve(idAndHttp[1]);
+					return CacheFiller.prepareLoadResponsePromise(respPath, httpPromise)
+						.catch( e => {repl.print(e + " (" + respPath + ")")} );
+				})
+			)
+		);
+};
+CacheFiller.prepareLoadJsonFilePromise = function(filePath) {
+	return Promise.resolve()
+		.then( () => OS.File.read(filePath) )
 		.then( data => {
 			let decoder = new TextDecoder();
 			let str = decoder.decode(data);
 			return JSON.parse(str);
 		});
+};
+CacheFiller.prepareLoadResponsePromise = function(basePath, httpPromise) {
+	var filterHttpPromise = httpPromise
+		.then( httpDataObj => {
+			if (httpDataObj.request.method !== "GET") throw null;
+		});
+	
+	var filterStatusPromise = CacheFiller.prepareLoadJsonFilePromise(OS.Path.join(basePath, "status"))
+		.then( statusDataObj => {
+			if ("tracingResult" in statusDataObj) throw null;
+			if (statusDataObj.httpStatus !== Cr.NS_OK) throw null;
+		});
+	
+	var cachePromise = CacheFiller.prepareLoadJsonFilePromise(OS.Path.join(basePath, "cache"));
+
+	var filterCachePromise = cachePromise
+		.catch( e => {throw null} );
+	
+	return Promise.all([filterHttpPromise, filterStatusPromise, filterCachePromise])
+		.then( () => CacheFiller.prepareLoadFilteredResponsePromise(basePath, httpPromise, cachePromise) )
+		.catch( e => {if (e !== null) throw e} );
+};
+CacheFiller.prepareLoadFilteredResponsePromise = function(basePath, httpPromise, cachePromise) {
+	var dataPromise = OS.File.read(OS.Path.join(basePath, "data"));
+	var dataLengthPromise = dataPromise.then( data => data.length );
 	
 	var cacheEntryPromise = httpPromise
 		.then( httpDataObj => {
@@ -1004,14 +1048,6 @@ CacheFiller.prepareLoadResponseFilesPromise = function(basePath, fileNames) {
 					let bytes = iStream.readBytes(iStream.available());
 					return window.btoa(bytes); // TODO: use base64 encoder stream
 				});
-		});
-	
-	var cachePromise = Promise.resolve()
-		.then( () => OS.File.read(OS.Path.join(basePath, "cache")) )
-		.then( data => {
-			let decoder = new TextDecoder();
-			let str = decoder.decode(data);
-			return JSON.parse(str);
 		});
 	
 	var cacheMetaPromise = Promise.all([cachePromise, siBase64Promise, dataLengthPromise])
@@ -1071,7 +1107,6 @@ CacheFiller.prepareLoadResponseFilesPromise = function(basePath, fileNames) {
 			oStream.writeByteArray(data, data.length);
 			oStream.close();
 		});
-	
 };
 CacheFiller.makeURIFromSpec = function(spec) {
 	return ioService.newURI(spec, null, null);
