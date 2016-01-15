@@ -1,16 +1,16 @@
-if (httpReply) {
-	httpReply.stop();
-	httpReply = null;
+if (httpReplay) {
+	httpReplay.stop();
+	httpReplay = null;
 }
-var httpReply = {httpObserver: null};
-httpReply.stop = function() {
+var httpReplay = {httpObserver: null};
+httpReplay.stop = function() {
 	if (this.httpObserver) {
 		this.httpObserver.stop();
 		this.httpObserver = null;
 		this.dmRoot.finish();
 	}
 };
-httpReply.start = function() {
+httpReplay.start = function() {
 
 Promise.prototype.finally = function(callback) {
 	let p = this.constructor;
@@ -711,7 +711,7 @@ const {TextDecoder, TextEncoder, OS} = Cu.import("resource://gre/modules/osfile.
 
 // DM -- DataModel
 function DMRoot() {
-	this.basePath = OS.Path.join(OS.Constants.Path.profileDir, "HttpReply");
+	this.basePath = OS.Path.join(OS.Constants.Path.profileDir, "HttpReplay");
 	this.promise = Promise.resolve()
 		.then( () => OS.File.makeDir(this.basePath) );
 	this.promise
@@ -944,7 +944,7 @@ var ioService = Services.io;
 var CacheFiller = {};
 CacheFiller.loadObservationData = function(observationId) {
 	try {
-		var homePath = OS.Path.join(OS.Constants.Path.profileDir, "HttpReply");
+		var homePath = OS.Path.join(OS.Constants.Path.profileDir, "HttpReplay");
 		var obsPath = OS.Path.join(homePath, observationId);
 		CacheFiller.prepareLoadObservationPromise(obsPath)
 			.then( () => {repl.print("done")} )
@@ -1149,12 +1149,12 @@ CacheFiller.makeURIFromSpec = function(spec) {
 	return ioService.newURI(spec, null, null);
 };
 
-this.runReply = function() {
+this.runReplay = function() {
 	CacheFiller.loadObservationData("1449374400000");
 };
 
 //this.run();
-this.runReply();
+this.runReplay();
 }
-httpReply.start();
+httpReplay.start();
 
