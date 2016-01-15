@@ -1,0 +1,13 @@
+{
+  "title": "Http Replay",
+  "name": "httpreplay",
+  "version": "0.0.1",
+  "main": "index.js",
+  "author": "Ilya Gordeev",
+  "engines": {
+    "firefox": ">=38.0a1",
+    "fennec": ">=38.0a1"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/Mirraz/"
+}
