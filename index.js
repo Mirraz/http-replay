@@ -28,6 +28,18 @@ var sidebar = require("sdk/ui/sidebar").Sidebar({
 	id: "http-replay",
 	title: "Http Replay",
 	url: self.data.url("sidebar.html"),
+	onReady: function (worker) {
+		worker.port.emit(
+			"sidebar-onload",
+			[
+				{id: "item01", text: "Item 01"},
+				{id: "item02", text: "Item 02"}
+			]
+		);
+		worker.port.on("sidebar-item-click", function(id) {
+			console.log("sidebar-item-click: " + id);
+		});
+	}
 });
 
 panel.port.on("panel-onload", function (clientSizes) {
