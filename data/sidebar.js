@@ -3,7 +3,6 @@ function listItemOnclick() {
 }
 
 addon.port.on("sidebar-onload", function(itemsData) {
-	console.log("sidebar-onload");
 	let listNode = document.getElementById("list");
 	itemsData.forEach( itemData => {
 		let node = document.createElement("div");

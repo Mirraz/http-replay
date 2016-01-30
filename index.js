@@ -1,3 +1,8 @@
+var { Cc, Ci, Cu, CC } = require('chrome');
+var {Replayer} = Cu.import("chrome://httpreplay/content/modules/replayer.js");
+
+// ui
+
 var self = require("sdk/self");
 var { ToggleButton } = require("sdk/ui/button/toggle");
 var { Panel } = require("sdk/panel");
@@ -29,15 +34,20 @@ var sidebar = require("sdk/ui/sidebar").Sidebar({
 	title: "Http Replay",
 	url: self.data.url("sidebar.html"),
 	onReady: function (worker) {
-		worker.port.emit(
-			"sidebar-onload",
-			[
-				{id: "item01", text: "Item 01"},
-				{id: "item02", text: "Item 02"}
-			]
-		);
+		Replayer.getObservations()
+			.catch( () => {} ) // TODO [1]
+			.then( ids =>
+				ids.map( id => {
+					return {"id": id, "text": id};
+				})
+			)
+			.then( itemsData => {
+				worker.port.emit("sidebar-onload", itemsData)
+			})
+			.catch( e => {console.error(e)} ); // TODO [1]
 		worker.port.on("sidebar-item-click", function(id) {
-			console.log("sidebar-item-click: " + id);
+			Replayer.playObservation(id)
+				.then( () => null ); // TODO
 		});
 	}
 });

@@ -2,20 +2,41 @@ var EXPORTED_SYMBOLS = ["Replayer"];
 
 Components.utils.import("chrome://httpreplay/content/modules/common.js");
 
-function Replayer() {}
-Replayer.prototype = {
-	start: function(observationId) {
-		CacheFiller.loadObservationData(observationId);
-	},
-	stop: function() {
-	},
+var {TextDecoder, TextEncoder, OS} = Cu.import("resource://gre/modules/osfile.jsm", {});
+
+var Replayer = {};
+Replayer.getObservations = function() {
+	try {
+		let iterator = new OS.File.DirectoryIterator(extensionDataPath);
+		let obsArrPromise = Promise.resolve()
+			.then( () => iterator.nextBatch() )
+			.finally( () => iterator.close() )
+			.then( entries => entries.map( entry => entry["name"] ) );
+		obsArrPromise
+			.then( () => {console.log("done")} )
+			.catch( e => {console.error(e)} );
+		return obsArrPromise;
+	} catch(e) {
+		console.error(e);
+	}
 };
+Replayer.playObservation = function(observationId) {
+	try {
+		var fillPromise = CacheFiller.getFillPromise(observationId);
+		fillPromise
+			.then( () => {console.log("done")} )
+			.catch( e => {console.error(e)} );
+		return fillPromise;
+	} catch(e) {
+		console.error(e);
+	}
+};
+
+// CacheFiller
 
 Cu.importGlobalProperties(["btoa"]);
 
 Cu.import("chrome://httpreplay/content/modules/securityinfo.js");
-
-var {TextDecoder, TextEncoder, OS} = Cu.import("resource://gre/modules/osfile.jsm", {});
 
 Cu.import("resource://gre/modules/Services.jsm");
 
@@ -26,24 +47,15 @@ var cacheStorage = cacheService.memoryCacheStorage(LoadContextInfo.default);
 const ioService = Services.io;
 
 var CacheFiller = {};
-CacheFiller.loadObservationData = function(observationId) {
-	try {
-		var obsPath = OS.Path.join(extensionDataPath, observationId);
-		CacheFiller.prepareLoadObservationPromise(obsPath)
-			.then( () => {console.log("done")} )
-			.catch( e => {console.error(e)} );
-	} catch(e) {
-		console.error(e);
-	}
+CacheFiller.getFillPromise = function(observationId) {
+	var obsPath = OS.Path.join(extensionDataPath, observationId);
+	return CacheFiller.prepareLoadObservationPromise(obsPath);
 };
 CacheFiller.prepareLoadObservationPromise = function(basePath) {
+	let iterator = new OS.File.DirectoryIterator(basePath);
 	return Promise.resolve()
-		.then( () => new OS.File.DirectoryIterator(basePath) )
-		.then(
-			iterator => Promise.resolve()
-				.then( () => iterator.nextBatch() )
-				.finally( () => iterator.close() )
-		)
+		.then( () => iterator.nextBatch() )
+		.finally( () => iterator.close() )
 		.then( entries => CacheFiller.prepareLoadObservationDirPromise(basePath, entries) );
 };
 CacheFiller.prepareLoadObservationDirPromise = function(basePath, entries) {
