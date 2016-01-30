@@ -1,5 +1,7 @@
-var { Cc, Ci, Cu, CC } = require('chrome');
-var {Replayer} = Cu.import("chrome://httpreplay/content/modules/replayer.js");
+const { Cc, Ci, Cu, CC } = require('chrome');
+const {Recorder} = Cu.import("chrome://httpreplay/content/modules/recorder.js");
+var recorder = new Recorder();
+const {Replayer} = Cu.import("chrome://httpreplay/content/modules/replayer.js");
 
 // ui
 
@@ -52,15 +54,19 @@ var sidebar = require("sdk/ui/sidebar").Sidebar({
 	}
 });
 
-panel.port.on("panel-onload", function (clientSizes) {
+panel.port.on("panel-onload", function(clientSizes) {
 	panel.resize(clientSizes.width, clientSizes.height);
 });
 
-panel.port.on("panel-click-record", function () {
-	console.log("panel-click-record");
+panel.port.on("panel-click-record", function() {
+	recorder.start();
 });
 
-panel.port.on("panel-click-choose-replay", function () {
+panel.port.on("panel-click-stop", function() {
+	recorder.stop(); // TODO onDonePromise
+});
+
+panel.port.on("panel-click-choose-replay", function() {
 	sidebar.show();
 	panel.hide();
 });

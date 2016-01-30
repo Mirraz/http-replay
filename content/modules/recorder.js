@@ -5,24 +5,37 @@ Cu.import("chrome://httpreplay/content/modules/datamodel.js");
 
 function Recorder() {}
 Recorder.prototype = {
+	running: false,
 	start: function() {
-		this.dmRoot = new DMRoot();
-		this.dmRoot.getOnDonePromise()
-			.then(
-				() => {console.log("dm: done")},
-				e  => {console.error("dm err: " + e)}
-			);
-		this.httpObserver = new HttpObserver(this.dmRoot.createObservation());
-		this.httpObserver.getOnDonePromise()
-			.then(
-				() => {console.log("obs: done")},
-				e  => {console.error("obs err: " + e)}
-			);
-		this.httpObserver.start();
+		try {
+			if (this.running) throw Error("Is running");
+			this.dmRoot = new DMRoot();
+			this.dmRoot.getOnDonePromise()
+				.then(
+					() => {console.log("dm: done")},
+					e  => {console.error("dm err: " + e)}
+				);
+			this.httpObserver = new HttpObserver(this.dmRoot.createObservation());
+			this.httpObserver.getOnDonePromise()
+				.then(
+					() => {console.log("obs: done")},
+					e  => {console.error("obs err: " + e)}
+				);
+			this.httpObserver.start();
+			this.running = true;
+		} catch(e) {
+			console.error(e);
+		}
 	},
 	stop: function () {
-		this.httpObserver.stop();
-		this.dmRoot.finish();
+		try {
+			if (! this.running) throw Error("Is not running");
+			this.httpObserver.stop();
+			this.dmRoot.finish();
+			this.running = false;
+		} catch(e) {
+			console.error(e);
+		}
 	},
 };
 

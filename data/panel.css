@@ -5,4 +5,8 @@
 .list-item:hover {
 	background-color: #dbdbdb;
 }
+.icon {
+	display: inline-block;
+	width: 20px;
+}
 
