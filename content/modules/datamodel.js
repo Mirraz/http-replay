@@ -6,7 +6,7 @@ var {TextDecoder, TextEncoder, OS} = Cu.import("resource://gre/modules/osfile.js
 
 // DM -- DataModel
 function DMRoot() {
-	this.basePath = OS.Path.join(OS.Constants.Path.profileDir, "HttpReplay");
+	this.basePath = extensionDataPath;
 	this.promise = Promise.resolve()
 		.then( () => OS.File.makeDir(this.basePath) );
 	this.promise

@@ -3,6 +3,7 @@ var EXPORTED_SYMBOLS = [
 	"Cc", "Ci", "Cr", "CC", "Cu",
 	"BinaryInputStream", "BinaryOutputStream", "ObjectOutputStream", "Pipe", "PR_UINT32_MAX",
 	"console",
+	"extensionDataPath",
 ];
 
 Promise.prototype.finally = function(callback) {
@@ -64,4 +65,8 @@ const Pipe = CC('@mozilla.org/pipe;1', 'nsIPipe', 'init');
 const PR_UINT32_MAX = 0xffffffff;
 
 const {console} = Cu.import("resource://gre/modules/devtools/Console.jsm", {});
+
+var {OS} = Cu.import("resource://gre/modules/osfile.jsm", {});
+const extensionDataPath = OS.Path.join(OS.Constants.Path.profileDir, "HttpReplay");
+Components.utils.unload("resource://gre/modules/osfile.jsm");
 

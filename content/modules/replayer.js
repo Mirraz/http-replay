@@ -28,8 +28,7 @@ const ioService = Services.io;
 var CacheFiller = {};
 CacheFiller.loadObservationData = function(observationId) {
 	try {
-		var homePath = OS.Path.join(OS.Constants.Path.profileDir, "HttpReplay");
-		var obsPath = OS.Path.join(homePath, observationId);
+		var obsPath = OS.Path.join(extensionDataPath, observationId);
 		CacheFiller.prepareLoadObservationPromise(obsPath)
 			.then( () => {console.log("done")} )
 			.catch( e => {console.error(e)} );
