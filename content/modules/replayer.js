@@ -11,7 +11,7 @@ Replayer.getObservations = function() {
 		let obsArrPromise = Promise.resolve()
 			.then( () => iterator.nextBatch() )
 			.finally( () => iterator.close() )
-			.then( entries => entries.map( entry => entry["name"] ) );
+			.then( entries => entries.map( entry => entry["name"] ).sort( (a,b) => a-b ) );
 		obsArrPromise
 			.then( () => {console.log("done")} )
 			.catch( e => {console.error(e)} );
