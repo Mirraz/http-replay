@@ -2,7 +2,7 @@
   "title": "Http Replay",
   "name": "httpreplay",
   "version": "0.0.1",
-  "main": "index.js",
+  "main": "lib/main.js",
   "author": "Ilya Gordeev",
   "engines": {
     "firefox": ">=38.0a1",
