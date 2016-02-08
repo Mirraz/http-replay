@@ -27,7 +27,7 @@ CREATE TABLE "http_channels" (
 	"http_request_method_id" INTEGER NOT NULL,
 	"uri" TEXT NOT NULL,
 	-- http_request_headers
-	"referrer" TEXT NOT NULL, -- redundant
+	"referrer" TEXT, -- redundant
 	
 	-- response
 	"statusCode" INTEGER NOT NULL,
@@ -35,7 +35,7 @@ CREATE TABLE "http_channels" (
 	-- http_response_headers
 	"contentLength" INTEGER NOT NULL, -- redundant
 	"http_response_content_type_id" INTEGER NOT NULL, -- redundant
-	"http_response_content_charset_id" INTEGER, -- redundant
+	"http_response_content_charset_id" INTEGER NOT NULL, -- redundant
 	
 	"securityInfoData_id" INTEGER NOT NULL,
 	
