@@ -120,7 +120,7 @@ CREATE TABLE "securityInfos" (
 	"SSLStatus_id" INTEGER,
 	"failedCertChain_id" INTEGER,
 	FOREIGN KEY("SSLStatus_id") REFERENCES "SSLStatuses"("id"),
-	FOREIGN KEY("failedCertChain_id") REFERENCES "failedCerts"("id")
+	FOREIGN KEY("failedCertChain_id") REFERENCES "certLists"("id")
 );
 
 CREATE TABLE "SSLStatuses" (
@@ -138,25 +138,34 @@ CREATE TABLE "SSLStatuses" (
 	FOREIGN KEY("serverCert_id") REFERENCES "certs"("id")
 );
 
-CREATE TABLE "failedCerts" (
-	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-	"securityInfo_id" INTEGER NOT NULL,
-	"cert_id" INTEGER NOT NULL,
-	"order_number" INTEGER NOT NULL,
-	FOREIGN KEY("securityInfo_id") REFERENCES "securityInfos"("id"),
-	FOREIGN KEY("cert_id") REFERENCES "certs"("id")
+CREATE TABLE "certLists" (
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL
 );
 
-CREATE TABLE "certs" (
+CREATE TABLE "certLists_to_certObjs" (
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, -- order is very important
+	"certList_id" INTEGER NOT NULL,
+	"certObj_id" INTEGER NOT NULL,
+	FOREIGN KEY("certList_id") REFERENCES "certLists"("id"),
+	FOREIGN KEY("certObj_id") REFERENCES "certObjs"("id")
+);
+
+CREATE TABLE "certObjs" (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
 	"cachedEVStatus" INTEGER NOT NULL,
+	"certData_id" INTEGER NOT NULL,
+	FOREIGN KEY("certData_id") REFERENCES "certDatas"("id")
+);
+
+CREATE TABLE "certDatas" (
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
 	"cert" BLOB NOT NULL
 );
 
-CREATE TABLE "cert_hashes" (
-	"cert_id" INTEGER NOT NULL,
+CREATE TABLE "certHashes" (
+	"certData_id" INTEGER NOT NULL,
 	"hash" INTEGER NOT NULL,
-	FOREIGN KEY("cert_id") REFERENCES "certs"("id")
+	FOREIGN KEY("certData_id") REFERENCES "certDatas"("id")
 );
 
 
