@@ -37,7 +37,7 @@ CREATE TABLE "http_channels" (
 	"http_response_content_type_id" INTEGER NOT NULL, -- redundant
 	"http_response_content_charset_id" INTEGER NOT NULL, -- redundant
 	
-	"securityInfoData_id" INTEGER NOT NULL,
+	"securityInfoData_id" INTEGER,
 	
 	FOREIGN KEY("response_id") REFERENCES "responses"("id")
 	FOREIGN KEY("http_topic_id") REFERENCES "http_topics"("id"),
