@@ -26,22 +26,24 @@ CREATE TABLE "http_channels" (
 	-- request
 	"http_request_method_id" INTEGER NOT NULL,
 	"uri" TEXT NOT NULL,
-	-- http_request_headers
+	"http_request_header_list_id" INTEGER NOT NULL,
 	"referrer" TEXT, -- redundant
 	
 	-- response
 	"statusCode" INTEGER NOT NULL,
 	"statusText" TEXT NOT NULL,
-	-- http_response_headers
+	"http_response_header_list_id" INTEGER NOT NULL,
 	"contentLength" INTEGER NOT NULL, -- redundant
 	"http_response_content_type_id" INTEGER NOT NULL, -- redundant
 	"http_response_content_charset_id" INTEGER NOT NULL, -- redundant
 	
 	"securityInfoData_id" INTEGER,
 	
-	FOREIGN KEY("response_id") REFERENCES "responses"("id")
+	FOREIGN KEY("response_id") REFERENCES "responses"("id"),
 	FOREIGN KEY("http_topic_id") REFERENCES "http_topics"("id"),
 	FOREIGN KEY("http_request_method_id") REFERENCES "http_request_methods"("id"),
+	FOREIGN KEY("http_request_header_list_id") REFERENCES "http_request_header_lists"("id"),
+	FOREIGN KEY("http_response_header_list_id") REFERENCES "http_response_header_lists"("id"),
 	FOREIGN KEY("http_response_content_type_id") REFERENCES "http_response_content_types"("id"),
 	FOREIGN KEY("http_response_content_charset_id") REFERENCES "http_response_content_charsets"("id"),
 	FOREIGN KEY("securityInfoData_id") REFERENCES "securityInfoDatas"("id")
@@ -67,27 +69,47 @@ CREATE TABLE "http_response_content_charsets" (
 	"value" TEXT NOT NULL UNIQUE
 );
 
-CREATE TABLE "http_request_headers" (
-	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, -- order is important
-	"http_channel_id" INTEGER NOT NULL,
-	"http_request_header_name_id" INTEGER NOT NULL,
-	"value" TEXT,
-	FOREIGN KEY("http_channel_id") REFERENCES "http_channels"("id"),
-	FOREIGN KEY("http_request_header_name_id") REFERENCES "http_request_header_names"("id")
+CREATE TABLE "http_request_header_lists" (
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL
 );
 
-CREATE TABLE "http_response_headers" (
+CREATE TABLE "http_request_header_lists_to_entries" (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, -- order is important
-	"http_channel_id" INTEGER NOT NULL,
-	"http_response_header_name_id" INTEGER NOT NULL,
+	"http_request_header_list_id" INTEGER NOT NULL,
+	"http_request_header_id" INTEGER NOT NULL,
+	FOREIGN KEY("http_request_header_list_id") REFERENCES "http_request_header_lists"("id"),
+	FOREIGN KEY("http_request_header_id") REFERENCES "http_request_headers"("id")
+);
+
+CREATE TABLE "http_request_headers" (
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+	"http_request_header_name_id" INTEGER NOT NULL,
 	"value" TEXT,
-	FOREIGN KEY("http_channel_id") REFERENCES "http_channels"("id"),
-	FOREIGN KEY("http_response_header_name_id") REFERENCES "http_response_header_names"("id")
+	FOREIGN KEY("http_request_header_name_id") REFERENCES "http_request_header_names"("id")
 );
 
 CREATE TABLE "http_request_header_names" (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
 	"value" TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE "http_response_header_lists" (
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL
+);
+
+CREATE TABLE "http_response_header_lists_to_entries" (
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, -- order is important
+	"http_response_header_list_id" INTEGER NOT NULL,
+	"http_response_header_id" INTEGER NOT NULL,
+	FOREIGN KEY("http_response_header_list_id") REFERENCES "http_response_header_lists"("id"),
+	FOREIGN KEY("http_response_header_id") REFERENCES "http_response_headers"("id")
+);
+
+CREATE TABLE "http_response_headers" (
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+	"http_response_header_name_id" INTEGER NOT NULL,
+	"value" TEXT,
+	FOREIGN KEY("http_response_header_name_id") REFERENCES "http_response_header_names"("id")
 );
 
 CREATE TABLE "http_response_header_names" (
@@ -200,16 +222,19 @@ CREATE TABLE "cache_entries" (
 	
 	-- meta
 	"http_request_method_id" INTEGER NOT NULL,
-	-- cache_entry_request_headers
-	"http_response_status_http_version_id" INTEGER NOT NULL,
+	"http_request_header_list_id" INTEGER NOT NULL,
 	"http_response_status_code" INTEGER NOT NULL,
 	"http_response_status_text" TEXT NOT NULL,
-	-- cache_entry_response_headers
-	-- cache_entry_metas (other)
+	"http_response_status_http_version_id" INTEGER NOT NULL,
+	"http_response_header_list_id" INTEGER NOT NULL,
+	"cache_entry_meta_list_id" INTEGER NOT NULL,
 	
 	FOREIGN KEY("response_id") REFERENCES "responses"("id"),
 	FOREIGN KEY("http_request_method_id") REFERENCES "http_request_methods"("id"),
-	FOREIGN KEY("http_response_status_http_version_id") REFERENCES "http_response_status_http_versions"("id")
+	FOREIGN KEY("http_request_header_list_id") REFERENCES "http_request_header_lists"("id"),
+	FOREIGN KEY("http_response_status_http_version_id") REFERENCES "http_response_status_http_versions"("id"),
+	FOREIGN KEY("http_response_header_list_id") REFERENCES "http_response_header_lists"("id"),
+	FOREIGN KEY("cache_entry_meta_list_id") REFERENCES "cache_entry_meta_lists"("id")
 );
 
 CREATE TABLE "http_response_status_http_versions" (
@@ -217,36 +242,28 @@ CREATE TABLE "http_response_status_http_versions" (
 	"value" TEXT NOT NULL UNIQUE
 );
 
+CREATE TABLE "cache_entry_meta_lists" (
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL
+);
+
+CREATE TABLE "cache_entry_meta_lists_to_entries" (
+	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+	"cache_entry_meta_list_id" INTEGER NOT NULL,
+	"cache_entry_meta_id" INTEGER NOT NULL,
+	FOREIGN KEY("cache_entry_meta_list_id") REFERENCES "cache_entry_meta_lists"("id"),
+	FOREIGN KEY("cache_entry_meta_id") REFERENCES "cache_entry_metas"("id")
+);
+
 CREATE TABLE "cache_entry_metas" (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-	"cache_entry_id" INTEGER NOT NULL,
 	"cache_entry_meta_name_id" INTEGER NOT NULL,
 	"value" TEXT,
-	FOREIGN KEY("cache_entry_id") REFERENCES "cache_entries"("id"),
 	FOREIGN KEY("cache_entry_meta_name_id") REFERENCES "cache_entry_meta_names"("id")
 );
 
 CREATE TABLE "cache_entry_meta_names" (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
 	"value" TEXT NOT NULL UNIQUE
-);
-
-CREATE TABLE "cache_entry_request_headers" (
-	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-	"cache_entry_id" INTEGER NOT NULL,
-	"http_request_header_name_id" INTEGER NOT NULL,
-	"value" TEXT,
-	FOREIGN KEY("cache_entry_id") REFERENCES "cache_entries"("id"),
-	FOREIGN KEY("http_request_header_name_id") REFERENCES "http_request_header_names"("id")
-);
-
-CREATE TABLE "cache_entry_response_headers" (
-	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-	"cache_entry_id" INTEGER NOT NULL,
-	"http_response_header_name_id" INTEGER NOT NULL,
-	"value" TEXT,
-	FOREIGN KEY("cache_entry_id") REFERENCES "cache_entries"("id"),
-	FOREIGN KEY("http_response_header_name_id") REFERENCES "http_response_header_names"("id")
 );
 
 
