@@ -150,13 +150,13 @@ CREATE TABLE "SSLStatuses" (
 	"serverCert_id" INTEGER NOT NULL,
 	"cipherSuite" INTEGER NOT NULL,
 	"protocolVersion" INTEGER NOT NULL,
-	"isDomainMismatch" NUMERIC NOT NULL,
-	"isNotValidAtThisTime" NUMERIC NOT NULL,
-	"isUntrusted" NUMERIC NOT NULL,
-	"isEV" NUMERIC NOT NULL,
-	"hasIsEVStatus" NUMERIC NOT NULL,
-	"haveCipherSuiteAndProtocol" NUMERIC NOT NULL,
-	"haveCertErrorBits" NUMERIC NOT NULL,
+	"isDomainMismatch" BOOLEAN NOT NULL,
+	"isNotValidAtThisTime" BOOLEAN NOT NULL,
+	"isUntrusted" BOOLEAN NOT NULL,
+	"isEV" BOOLEAN NOT NULL,
+	"hasIsEVStatus" BOOLEAN NOT NULL,
+	"haveCipherSuiteAndProtocol" BOOLEAN NOT NULL,
+	"haveCertErrorBits" BOOLEAN NOT NULL,
 	FOREIGN KEY("serverCert_id") REFERENCES "certs"("id")
 );
 
