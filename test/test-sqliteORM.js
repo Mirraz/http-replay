@@ -1,5 +1,5 @@
 const SdkTest = require("sdk/test");
-const {executeOrmObj} = require("../lib/sqliteORM");
+const {executeOrmObj, makeOrmPreset} = require("../lib/sqliteORM");
 const {Cu} = require("chrome");
 const {OS} = Cu.import("resource://gre/modules/osfile.jsm", {});
 //const {Sqlite} = Cu.import("resource://gre/modules/Sqlite.jsm");
@@ -47,23 +47,23 @@ function dbConnTestRun(assert, done, run) {
 ////////////////
 
 function testSingleTable(assert, done) {
+	const preset = makeOrmPreset({
+		"table": {insert: ["value"]}
+	});
+	const valueStr = "qwerty";
 	dbConnTestRun(assert, done, function(dbConn) {
-		const valueStr = "qwerty";
-		return Promise.resolve()
-			.then( () => dbConn.execute(
-				'DROP TABLE IF EXISTS "table"'
-			))
-			.then( () => dbConn.execute(
-				'CREATE TABLE "table" (' +
-					'"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL' + ', ' +
-					'"value" TEXT' +
-				')'
-			))
+		return dbConn.executeTransaction(function*(conn) {
+				yield dbConn.execute('DROP TABLE IF EXISTS "table"');
+				yield dbConn.execute(
+					'CREATE TABLE "table" (' +
+						'"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL' + ', ' +
+						'"value" TEXT' +
+					')'
+				);
+			})
 			.then( () => executeOrmObj(
 				dbConn,
-				{
-					"table": {insert: 'INSERT INTO "table" ("value") VALUES (:value)'},
-				},
+				preset,
 				{
 					"table": {value: valueStr}
 				}
@@ -80,9 +80,13 @@ function testSingleTable(assert, done) {
 exports["test single table"] = testSingleTable;
 
 function testNestedTables(assert, done) {
+	const preset = makeOrmPreset({
+		"table01": {insert: ["value"]},
+		"table02": {insert: ["table01_id", "value"]},
+	});
+	const table01ValueStr = "qwerty";
+	const table02ValueStr = "asdfgh";
 	dbConnTestRun(assert, done, function(dbConn) {
-		const table01ValueStr = "qwerty";
-		const table02ValueStr = "asdfgh";
 		return dbConn.executeTransaction(function*(conn) {
 				yield dbConn.execute('DROP TABLE IF EXISTS "table01"');
 				yield dbConn.execute('DROP TABLE IF EXISTS "table02"');
@@ -104,10 +108,7 @@ function testNestedTables(assert, done) {
 			})
 			.then( () => executeOrmObj(
 				dbConn,
-				{
-					"table01": {insert: 'INSERT INTO "table01" ("value") VALUES (:value)'},
-					"table02": {insert: 'INSERT INTO "table02" ("table01_id", "value") VALUES (:table01_id, :value)'}
-				},
+				preset,
 				{
 					"table02": {
 						table01_id: {
