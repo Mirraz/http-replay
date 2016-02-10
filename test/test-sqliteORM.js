@@ -139,6 +139,71 @@ function testNestedTables(assert, done) {
 }
 exports["test nested tables"] = testNestedTables;
 
+function testEnumTable(assert, done) {
+	const preset = makeOrmPreset({
+		"table": {"enum": {id: "id", value: "value"}},
+	});
+	const tableValueStr = "qwerty";
+	const tableValue02Str = "asdfgh";
+	dbConnTestRun(assert, done, function(dbConn) {
+		return dbConn.executeTransaction(function*(conn) {
+				yield dbConn.execute('DROP TABLE IF EXISTS "table"');
+				yield dbConn.execute(
+					'CREATE TABLE "table" (' +
+						'"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL' + ', ' +
+						'"value" TEXT NOT NULL UNIQUE' +
+					')'
+				);
+			})
+			.then( () => executeOrmObj(
+				dbConn,
+				preset,
+				{
+					"table": {
+						value: tableValueStr
+					}
+				}
+			))
+			.then(
+				id => executeOrmObj(
+					dbConn,
+					preset,
+					{
+						"table": {
+							value: tableValueStr
+						}
+					}
+				)
+				.then( idFirst => {
+					assert.ok(id === idFirst, "enum is found first time");
+				})
+				.then( () => executeOrmObj(
+					dbConn,
+					preset,
+					{
+						"table": {
+							value: tableValue02Str
+						}
+					}
+				))
+				.then( id02 => {assert.ok(id !== id02, "unique enum")} )
+				.then( () => executeOrmObj(
+					dbConn,
+					preset,
+					{
+						"table": {
+							value: tableValueStr
+						}
+					}
+				))
+				.then( idSecond => {
+					assert.ok(id === idSecond, "enum is found second time");
+				})
+			);
+	});
+}
+exports["test enum table"] = testEnumTable;
+
 ////////////////
 
 var testCount = Object.keys(exports).filter( key => key.indexOf("test") === 0 ).length;
