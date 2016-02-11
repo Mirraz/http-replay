@@ -79,6 +79,54 @@ function testSingleTable(assert, done) {
 }
 exports["test single table"] = testSingleTable;
 
+function testEmptyTable(assert, done) {
+	const preset = makeOrmPreset({
+		"table": {insert: []}
+	});
+	dbConnTestRun(assert, done, function(dbConn) {
+		return dbConn.executeTransaction(function*(conn) {
+				yield dbConn.execute('DROP TABLE IF EXISTS "table"');
+				yield dbConn.execute(
+					'CREATE TABLE "table" (' +
+						'"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL' +
+					')'
+				);
+			})
+			.then( () => executeOrmObj(
+				dbConn,
+				preset,
+				{
+					"table": {}
+				}
+			))
+			.then(
+				id => dbConn.execute('SELECT "id" FROM "table"')
+					.then( rows => {
+						assert.ok(rows.length === 1, "rows.length");
+						assert.ok(rows[0].getResultByName("id") === id, "row.id");
+					})
+					.then( () => executeOrmObj(
+						dbConn,
+						preset,
+						{
+							"table": {}
+						}
+					))
+					.then( id02 => {
+						assert.ok(id !== id02, "unique ids");
+						return dbConn.execute('SELECT "id" FROM "table"')
+							.then( rows => {
+								assert.ok(rows.length === 2, "rows.length second time");
+								let ids = rows.map( row => row.getResultByName("id") );
+								assert.ok(ids.includes(id  ), "id01");
+								assert.ok(ids.includes(id02), "id02");
+							});
+					})
+			);
+	});
+}
+exports["test empty table"] = testEmptyTable;
+
 function testNestedTables(assert, done) {
 	const preset = makeOrmPreset({
 		"table01": {insert: ["value"]},
