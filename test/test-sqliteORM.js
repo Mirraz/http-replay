@@ -77,7 +77,73 @@ function testSingleTable(assert, done) {
 			);
 	});
 }
-exports["test single table"] = testSingleTable;
+
+function arrayEquals(firstArray, secondArray) {
+	return	(
+		firstArray.length === secondArray.length &&
+		firstArray.every( (element, index) => element === secondArray[index] )
+	);
+}
+
+function testAllDatatypes(assert, done) {
+	const preset = makeOrmPreset({
+		"table": {insert: ["nuller", "id", "string", "blober", "number", "booler"]}
+	});
+	const nullValue = null;
+	const intValue = 12345;
+	const strValue = "qwerty";
+	const blobValue = new Array(256*4).fill(undefined).map( (value, index) => index % 256 );
+	const floatValue = 3.14159265359;
+	const boolValue = true;
+	dbConnTestRun(assert, done, function(dbConn) {
+		return dbConn.executeTransaction(function*(conn) {
+				yield dbConn.execute('DROP TABLE IF EXISTS "table"');
+				yield dbConn.execute(
+					'CREATE TABLE "table" ('+
+						'"nuller" NULL' + ', ' +
+						'"id" INTEGER NOT NULL' + ', ' +
+						'"string" TEXT NOT NULL' + ', ' +
+						'"blober" BLOB NOT NULL' + ', ' +
+						'"number" REAL NOT NULL' + ', ' +
+						'"booler" BOOLEAN NOT NULL' +
+					')'
+				);
+			})
+			.then( () => executeOrmObj(
+				dbConn,
+				preset,
+				{
+					"table": {
+						nuller: nullValue,
+						id:     intValue,
+						string: strValue,
+						blober: blobValue,
+						number: floatValue,
+						booler: boolValue
+					}
+				}
+			))
+			.then(
+				rowId => dbConn.execute('SELECT * FROM "table"')
+					.then( rows => {
+						assert.ok(rows.length === 1, "rows.length");
+						let row = rows[0];
+						assert.ok(row.getResultByName("nuller") === nullValue,  "null");
+						assert.ok(row.getResultByName("id")     === intValue,   "integer");
+						assert.ok(row.getResultByName("string") === strValue,   "string");
+						assert.ok(
+							(
+								Array.isArray(row.getResultByName("blober")) &&
+								arrayEquals(row.getResultByName("blober"), blobValue)
+							),
+							"blob"
+						);
+						assert.ok(row.getResultByName("number") === floatValue, "float");
+						assert.ok(Boolean(row.getResultByName("booler")) === boolValue, "bool");
+					})
+			);
+	});
+}
 
 function testEmptyTable(assert, done) {
 	const preset = makeOrmPreset({
@@ -125,7 +191,6 @@ function testEmptyTable(assert, done) {
 			);
 	});
 }
-exports["test empty table"] = testEmptyTable;
 
 function testNestedTables(assert, done) {
 	const preset = makeOrmPreset({
@@ -185,7 +250,6 @@ function testNestedTables(assert, done) {
 			});
 	});
 }
-exports["test nested tables"] = testNestedTables;
 
 function testEnumTable(assert, done) {
 	const preset = makeOrmPreset({
@@ -250,6 +314,11 @@ function testEnumTable(assert, done) {
 			);
 	});
 }
+
+exports["test single table"] = testSingleTable;
+exports["test all datatypes"] = testAllDatatypes;
+exports["test empty table"] = testEmptyTable;
+exports["test nested tables"] = testNestedTables;
 exports["test enum table"] = testEnumTable;
 
 ////////////////
