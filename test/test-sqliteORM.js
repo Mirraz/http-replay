@@ -5,14 +5,6 @@ const {OS} = Cu.import("resource://gre/modules/osfile.jsm", {});
 //const {Sqlite} = Cu.import("resource://gre/modules/Sqlite.jsm");
 const {Sqlite} = require("../lib/sqlite");
 
-Promise.prototype.finally = function(callback) {
-	let p = this.constructor;
-	return this.then(
-		value  => p.resolve(callback()).then(() => value),
-		reason => p.resolve(callback()).then(() => { throw reason })
-	);
-};
-
 const dbName = "test_storage.sqlite";
 const dbPath = OS.Path.join(OS.Constants.Path.profileDir, dbName);
 
