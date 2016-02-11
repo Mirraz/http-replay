@@ -307,11 +307,110 @@ function testEnumTable(assert, done) {
 	});
 }
 
+function testCallbackValue(assert, done) {
+	const preset = makeOrmPreset({
+		"table": {insert: ["value"]}
+	});
+	const valueStr = "qwerty";
+	dbConnTestRun(assert, done, function(dbConn) {
+		return dbConn.executeTransaction(function*(conn) {
+				yield dbConn.execute('DROP TABLE IF EXISTS "table"');
+				yield dbConn.execute(
+					'CREATE TABLE "table" (' +
+						'"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL' + ', ' +
+						'"value" TEXT' +
+					')'
+				);
+			})
+			.then( () => executeOrmObj(
+				dbConn,
+				preset,
+				{
+					"table": {
+						value: function() {
+							return Promise.resolve(valueStr);
+						}
+					}
+				}
+			))
+			.then(
+				rowId => dbConn.execute('SELECT id FROM "table" WHERE "value" = :value', {value: valueStr})
+					.then( rows => {
+						assert.ok(rows.length === 1, "rows.length");
+						assert.ok(rows[0].getResultByName("id") === rowId, "row.id");
+					})
+			);
+	});
+}
+
+function testCallbackSubExecution(assert, done) {
+	const preset = makeOrmPreset({
+		"table01": {insert: ["value"]},
+		"table02": {insert: ["table01_id", "value"]},
+	});
+	const table01ValueStr = "qwerty";
+	const table02ValueStr = "asdfgh";
+	dbConnTestRun(assert, done, function(dbConn) {
+		return dbConn.executeTransaction(function*(conn) {
+				yield dbConn.execute('DROP TABLE IF EXISTS "table01"');
+				yield dbConn.execute('DROP TABLE IF EXISTS "table02"');
+				yield dbConn.execute('PRAGMA foreign_keys = ON');
+				yield dbConn.execute(
+					'CREATE TABLE "table01" (' +
+						'"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL' + ', ' +
+						'"value" TEXT' +
+					')'
+				);
+				yield dbConn.execute(
+					'CREATE TABLE "table02" (' +
+						'"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL' + ', ' +
+						'"table01_id" INTEGER NOT NULL' + ', ' +
+						'"value" TEXT' + ', ' +
+						'FOREIGN KEY("table01_id") REFERENCES "table01"("id")' +
+					')'
+				);
+			})
+			.then( () => executeOrmObj(
+				dbConn,
+				preset,
+				{
+					"table02": {
+						table01_id: function(executor) {
+							return executor.execute({
+								"table01": {
+									value: table01ValueStr
+								}
+							});
+						},
+						value: table02ValueStr
+					}
+				}
+			))
+			.then(
+				table02Id => dbConn.execute('SELECT id, table01_id FROM "table02" WHERE "value" = :value', {value: table02ValueStr})
+					.then( rows => {
+						assert.ok(rows.length === 1, "table02.rows.length");
+						let row = rows[0];
+						assert.ok(row.getResultByName("id") === table02Id, "table02.row.id");
+						let table01Id = row.getResultByName("table01_id");
+						return dbConn.execute('SELECT value FROM "table01" WHERE "id" = :id', {id: table01Id})
+					})
+			)
+			.then( rows => {
+				assert.ok(rows.length === 1, "table01.rows.length");
+				let row = rows[0];
+				assert.ok(row.getResultByName("value") === table01ValueStr, "table01.row.value");
+			});
+	});
+}
+
 exports["test single table"] = testSingleTable;
 exports["test all datatypes"] = testAllDatatypes;
 exports["test empty table"] = testEmptyTable;
 exports["test nested tables"] = testNestedTables;
 exports["test enum table"] = testEnumTable;
+exports["test callback value"] = testCallbackValue;
+exports["test callback sub execution"] = testCallbackSubExecution;
 
 ////////////////
 
