@@ -61,7 +61,7 @@ function testSingleTable(assert, done) {
 				}
 			))
 			.then(
-				rowId => dbConn.execute('SELECT id FROM "table" WHERE "value" = :value', {value: valueStr})
+				rowId => dbConn.execute('SELECT "id" FROM "table" WHERE "value" = :value', {value: valueStr})
 					.then( rows => {
 						assert.ok(rows.length === 1, "rows.length");
 						assert.ok(rows[0].getResultByName("id") === rowId, "row.id");
@@ -226,13 +226,13 @@ function testNestedTables(assert, done) {
 				}
 			))
 			.then(
-				table02Id => dbConn.execute('SELECT id, table01_id FROM "table02" WHERE "value" = :value', {value: table02ValueStr})
+				table02Id => dbConn.execute('SELECT "id", "table01_id" FROM "table02" WHERE "value" = :value', {value: table02ValueStr})
 					.then( rows => {
 						assert.ok(rows.length === 1, "table02.rows.length");
 						let row = rows[0];
 						assert.ok(row.getResultByName("id") === table02Id, "table02.row.id");
 						let table01Id = row.getResultByName("table01_id");
-						return dbConn.execute('SELECT value FROM "table01" WHERE "id" = :id', {id: table01Id})
+						return dbConn.execute('SELECT "value" FROM "table01" WHERE "id" = :id', {id: table01Id})
 					})
 			)
 			.then( rows => {
@@ -334,7 +334,7 @@ function testCallbackValue(assert, done) {
 				}
 			))
 			.then(
-				rowId => dbConn.execute('SELECT id FROM "table" WHERE "value" = :value', {value: valueStr})
+				rowId => dbConn.execute('SELECT "id" FROM "table" WHERE "value" = :value', {value: valueStr})
 					.then( rows => {
 						assert.ok(rows.length === 1, "rows.length");
 						assert.ok(rows[0].getResultByName("id") === rowId, "row.id");
@@ -387,13 +387,13 @@ function testCallbackSubExecution(assert, done) {
 				}
 			))
 			.then(
-				table02Id => dbConn.execute('SELECT id, table01_id FROM "table02" WHERE "value" = :value', {value: table02ValueStr})
+				table02Id => dbConn.execute('SELECT "id", "table01_id" FROM "table02" WHERE "value" = :value', {value: table02ValueStr})
 					.then( rows => {
 						assert.ok(rows.length === 1, "table02.rows.length");
 						let row = rows[0];
 						assert.ok(row.getResultByName("id") === table02Id, "table02.row.id");
 						let table01Id = row.getResultByName("table01_id");
-						return dbConn.execute('SELECT value FROM "table01" WHERE "id" = :id', {id: table01Id})
+						return dbConn.execute('SELECT "value" FROM "table01" WHERE "id" = :id', {id: table01Id})
 					})
 			)
 			.then( rows => {
