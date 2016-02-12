@@ -1,5 +1,5 @@
 const SdkTest = require("sdk/test");
-const {executeOrmObj, makeOrmPreset} = require("../lib/sqliteORM");
+const {makeOrmPreset, executeOrmObj} = require("../lib/sqliteORM");
 const {Cu} = require("chrome");
 const {OS} = Cu.import("resource://gre/modules/osfile.jsm", {});
 //const {Sqlite} = Cu.import("resource://gre/modules/Sqlite.jsm");
