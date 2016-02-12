@@ -404,6 +404,148 @@ function testCallbackSubExecution(assert, done) {
 	});
 }
 
+function arrayContentsEquals(firstArray, secondArray) {
+	if (firstArray.length !== secondArray.length) return false;
+	let firstArraySorted = firstArray.slice();
+	firstArraySorted.sort();
+	let secondArraySorted = secondArray.slice();
+	secondArraySorted.sort();
+	return arrayEquals(firstArraySorted, secondArraySorted);
+}
+
+function testCallbackSidePromise(assert, done) {
+	const preset = makeOrmPreset({
+		"main": {insert: ["value", "list_id"]},
+		"lists": {insert: []},
+		"lists_to_entries": {insert: ["list_id", "entry_id"]},
+		"entries": {insert: ["value"]},
+	});
+	const mainValueStr = "qwerty";
+	const entryValueStrArr = [
+		"qwer",
+		"wert",
+		"erty",
+		"rtyu",
+	];
+	dbConnTestRun(assert, done, function(dbConn) {
+		return dbConn.executeTransaction(function*(conn) {
+				yield dbConn.execute('DROP TABLE IF EXISTS "main"');
+				yield dbConn.execute('DROP TABLE IF EXISTS "lists"');
+				yield dbConn.execute('DROP TABLE IF EXISTS "lists_to_entries"');
+				yield dbConn.execute('DROP TABLE IF EXISTS "entries"');
+				yield dbConn.execute('PRAGMA foreign_keys = ON');
+				yield dbConn.execute(
+					'CREATE TABLE "main" (' +
+						'"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL' + ', ' +
+						'"value" TEXT' + ', ' +
+						'"list_id" INTEGER NOT NULL' + ', ' +
+						'FOREIGN KEY("list_id") REFERENCES "lists"("id")' +
+					')'
+				);
+				yield dbConn.execute(
+					'CREATE TABLE "lists" (' +
+						'"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL' +
+					')'
+				);
+				yield dbConn.execute(
+					'CREATE TABLE "lists_to_entries" (' +
+						'"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL' + ', ' +
+						'"list_id" INTEGER NOT NULL' + ', ' +
+						'"entry_id" INTEGER NOT NULL' + ', ' +
+						'FOREIGN KEY("list_id") REFERENCES "lists"("id")' + ', ' +
+						'FOREIGN KEY("entry_id") REFERENCES "entries"("id")' +
+					')'
+				);
+				yield dbConn.execute(
+					'CREATE TABLE "entries" (' +
+						'"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL' + ', ' +
+						'"value" TEXT' +
+					')'
+				);
+			})
+			.then(
+				() => executeOrmObj(
+					dbConn,
+					preset,
+					{
+						"main": {
+							value: mainValueStr,
+							list_id: function(executor) {
+								let listIdPromise = executor.execute({"lists": {}});
+								executor.addSidePromise(
+									"rels",
+									listIdPromise
+										.then(
+											listId => Promise.all(
+												entryValueStrArr.map(
+													entryValueStr => executor.execute({
+														"lists_to_entries": {
+															list_id: listId,
+															entry_id: {
+																"entries": {
+																	value: entryValueStr
+																}
+															}
+														}
+													})
+												)
+											)
+										)
+								);
+								return listIdPromise;
+							}
+						}
+					}
+				)
+			)
+			.then( results => {
+				assert.ok(results.length === 2, "execution result");
+				let mainId = results[0];
+				let subResults = results[1];
+				assert.ok(typeof subResults === "object" && subResults !== null, "subResults is a map");
+				assert.ok(arrayEquals(["rels"], Object.keys(subResults)), "subResults keys");
+				let relIds = subResults["rels"];
+				return dbConn.execute('SELECT "id", "value", "list_id" FROM "main"')
+					.then( rows => {
+						assert.ok(rows.length === 1, "main.rows.count");
+						let row = rows[0];
+						assert.ok(row.getResultByName("id") === mainId, "main.id");
+						assert.ok(row.getResultByName("value") === mainValueStr, "main.value");
+						return row.getResultByName("list_id");
+					})
+					.then(
+						listId => dbConn.execute('SELECT * FROM "lists_to_entries"')
+							.then( rows => {
+								assert.ok(rows.length === entryValueStrArr.length, "lists_to_entries.rows.count");
+								assert.ok(
+									rows.map( row => row.getResultByName("list_id") ).every( val => val === listId ),
+									"lists_to_entries.rows.list_id"
+								);
+								assert.ok(
+									arrayContentsEquals(relIds, rows.map( row => row.getResultByName("id") )),
+									"lists_to_entries.rows.id"
+								);
+								return rows.map( row => row.getResultByName("entry_id") );
+							})
+							.then(
+								entryIds => dbConn.execute('SELECT * FROM "entries"')
+									.then( rows => {
+										assert.ok(rows.length === entryValueStrArr.length, "entries.rows.count");
+										assert.ok(
+											arrayContentsEquals(entryIds, rows.map( row => row.getResultByName("id") )),
+											"entries.rows.id"
+										);
+										assert.ok(
+											arrayContentsEquals(entryValueStrArr, rows.map( row => row.getResultByName("value") )),
+											"entries.rows.value"
+										);
+									})
+							)
+					)
+			});
+	});
+}
+
 exports["test single table"] = testSingleTable;
 exports["test all datatypes"] = testAllDatatypes;
 exports["test empty table"] = testEmptyTable;
@@ -411,6 +553,7 @@ exports["test nested tables"] = testNestedTables;
 exports["test enum table"] = testEnumTable;
 exports["test callback value"] = testCallbackValue;
 exports["test callback sub execution"] = testCallbackSubExecution;
+exports["test callback side promise"] = testCallbackSidePromise;
 
 ////////////////
 
