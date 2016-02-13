@@ -546,6 +546,47 @@ function testCallbackSidePromise(assert, done) {
 	});
 }
 
+function testTransactionPerformance(assert, done) {
+	const amount = 1024*4; // ~8 sec.
+	dbConnTestRun(assert, done, function(dbConn) {
+		return dbConn.executeTransaction(function*(conn) {
+				yield conn.execute('DROP TABLE IF EXISTS "table"');
+				yield conn.execute(
+					'CREATE TABLE "table" (' +
+						'"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL' + ', ' +
+						'"value" INTEGER NOT NULL' +
+					')'
+				);
+			})
+			.then( () => {console.log("insert begin")} )
+			.then(
+				() => dbConn.executeTransaction(function*(conn) {
+					let id = 0;
+					for (let i=0; i<amount; ++i) {
+						yield conn.execute('INSERT INTO "table" ("value") VALUES (:value)', {value: id*10});
+						let rows = yield conn.execute('SELECT last_insert_rowid()');
+						id = rows[0].getResultByIndex(0);
+					}
+				})
+			)
+			.then( () => {console.log("insert end")} )
+			.then( () => dbConn.execute('SELECT * FROM "table" ORDER BY "id"') )
+			.then( rows => {
+				assert.ok(rows.length === amount, "table.rows.length");
+				let idsCheck    = true;
+				let valuesCheck = true;
+				for (let i=0; i<amount; ++i) {
+					let id    = rows[i].getResultByName("id");
+					let value = rows[i].getResultByName("value");
+					idsCheck    = (idsCheck    && id    === i+1);
+					valuesCheck = (valuesCheck && value === i*10);
+				}
+				assert.ok(idsCheck,    "table.rows.id");
+				assert.ok(valuesCheck, "table.rows.values");
+			});
+	})
+}
+
 exports["test single table"] = testSingleTable;
 exports["test all datatypes"] = testAllDatatypes;
 exports["test empty table"] = testEmptyTable;
@@ -554,6 +595,8 @@ exports["test enum table"] = testEnumTable;
 exports["test callback value"] = testCallbackValue;
 exports["test callback sub execution"] = testCallbackSubExecution;
 exports["test callback side promise"] = testCallbackSidePromise;
+
+//exports["test transaction performance"] = testTransactionPerformance;
 
 ////////////////
 
