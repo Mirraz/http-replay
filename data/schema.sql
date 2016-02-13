@@ -204,7 +204,7 @@ CREATE TABLE "http_response_datas" (
 CREATE TABLE "http_statuses" (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
 	"response_id" INTEGER NOT NULL,
-	"listener_status" INTEGER NOT NULL,
+	"tracing_status" INTEGER NOT NULL,
 	"http_status" INTEGER NOT NULL,
 	FOREIGN KEY("response_id") REFERENCES "responses"("id")
 );
