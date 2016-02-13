@@ -45,8 +45,8 @@ function testSingleTable(assert, done) {
 	const valueStr = "qwerty";
 	dbConnTestRun(assert, done, function(dbConn) {
 		return dbConn.executeTransaction(function*(conn) {
-				yield dbConn.execute('DROP TABLE IF EXISTS "table"');
-				yield dbConn.execute(
+				yield conn.execute('DROP TABLE IF EXISTS "table"');
+				yield conn.execute(
 					'CREATE TABLE "table" (' +
 						'"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL' + ', ' +
 						'"value" TEXT' +
@@ -89,8 +89,8 @@ function testAllDatatypes(assert, done) {
 	const boolValue = true;
 	dbConnTestRun(assert, done, function(dbConn) {
 		return dbConn.executeTransaction(function*(conn) {
-				yield dbConn.execute('DROP TABLE IF EXISTS "table"');
-				yield dbConn.execute(
+				yield conn.execute('DROP TABLE IF EXISTS "table"');
+				yield conn.execute(
 					'CREATE TABLE "table" ('+
 						'"nuller" NULL' + ', ' +
 						'"id" INTEGER NOT NULL' + ', ' +
@@ -143,8 +143,8 @@ function testEmptyTable(assert, done) {
 	});
 	dbConnTestRun(assert, done, function(dbConn) {
 		return dbConn.executeTransaction(function*(conn) {
-				yield dbConn.execute('DROP TABLE IF EXISTS "table"');
-				yield dbConn.execute(
+				yield conn.execute('DROP TABLE IF EXISTS "table"');
+				yield conn.execute(
 					'CREATE TABLE "table" (' +
 						'"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL' +
 					')'
@@ -193,16 +193,16 @@ function testNestedTables(assert, done) {
 	const table02ValueStr = "asdfgh";
 	dbConnTestRun(assert, done, function(dbConn) {
 		return dbConn.executeTransaction(function*(conn) {
-				yield dbConn.execute('DROP TABLE IF EXISTS "table01"');
-				yield dbConn.execute('DROP TABLE IF EXISTS "table02"');
-				yield dbConn.execute('PRAGMA foreign_keys = ON');
-				yield dbConn.execute(
+				yield conn.execute('DROP TABLE IF EXISTS "table01"');
+				yield conn.execute('DROP TABLE IF EXISTS "table02"');
+				yield conn.execute('PRAGMA foreign_keys = ON');
+				yield conn.execute(
 					'CREATE TABLE "table01" (' +
 						'"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL' + ', ' +
 						'"value" TEXT' +
 					')'
 				);
-				yield dbConn.execute(
+				yield conn.execute(
 					'CREATE TABLE "table02" (' +
 						'"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL' + ', ' +
 						'"table01_id" INTEGER NOT NULL' + ', ' +
@@ -251,8 +251,8 @@ function testEnumTable(assert, done) {
 	const tableValue02Str = "asdfgh";
 	dbConnTestRun(assert, done, function(dbConn) {
 		return dbConn.executeTransaction(function*(conn) {
-				yield dbConn.execute('DROP TABLE IF EXISTS "table"');
-				yield dbConn.execute(
+				yield conn.execute('DROP TABLE IF EXISTS "table"');
+				yield conn.execute(
 					'CREATE TABLE "table" (' +
 						'"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL' + ', ' +
 						'"value" TEXT NOT NULL UNIQUE' +
@@ -314,8 +314,8 @@ function testCallbackValue(assert, done) {
 	const valueStr = "qwerty";
 	dbConnTestRun(assert, done, function(dbConn) {
 		return dbConn.executeTransaction(function*(conn) {
-				yield dbConn.execute('DROP TABLE IF EXISTS "table"');
-				yield dbConn.execute(
+				yield conn.execute('DROP TABLE IF EXISTS "table"');
+				yield conn.execute(
 					'CREATE TABLE "table" (' +
 						'"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL' + ', ' +
 						'"value" TEXT' +
@@ -352,16 +352,16 @@ function testCallbackSubExecution(assert, done) {
 	const table02ValueStr = "asdfgh";
 	dbConnTestRun(assert, done, function(dbConn) {
 		return dbConn.executeTransaction(function*(conn) {
-				yield dbConn.execute('DROP TABLE IF EXISTS "table01"');
-				yield dbConn.execute('DROP TABLE IF EXISTS "table02"');
-				yield dbConn.execute('PRAGMA foreign_keys = ON');
-				yield dbConn.execute(
+				yield conn.execute('DROP TABLE IF EXISTS "table01"');
+				yield conn.execute('DROP TABLE IF EXISTS "table02"');
+				yield conn.execute('PRAGMA foreign_keys = ON');
+				yield conn.execute(
 					'CREATE TABLE "table01" (' +
 						'"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL' + ', ' +
 						'"value" TEXT' +
 					')'
 				);
-				yield dbConn.execute(
+				yield conn.execute(
 					'CREATE TABLE "table02" (' +
 						'"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL' + ', ' +
 						'"table01_id" INTEGER NOT NULL' + ', ' +
@@ -429,12 +429,12 @@ function testCallbackSidePromise(assert, done) {
 	];
 	dbConnTestRun(assert, done, function(dbConn) {
 		return dbConn.executeTransaction(function*(conn) {
-				yield dbConn.execute('DROP TABLE IF EXISTS "main"');
-				yield dbConn.execute('DROP TABLE IF EXISTS "lists"');
-				yield dbConn.execute('DROP TABLE IF EXISTS "lists_to_entries"');
-				yield dbConn.execute('DROP TABLE IF EXISTS "entries"');
-				yield dbConn.execute('PRAGMA foreign_keys = ON');
-				yield dbConn.execute(
+				yield conn.execute('DROP TABLE IF EXISTS "main"');
+				yield conn.execute('DROP TABLE IF EXISTS "lists"');
+				yield conn.execute('DROP TABLE IF EXISTS "lists_to_entries"');
+				yield conn.execute('DROP TABLE IF EXISTS "entries"');
+				yield conn.execute('PRAGMA foreign_keys = ON');
+				yield conn.execute(
 					'CREATE TABLE "main" (' +
 						'"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL' + ', ' +
 						'"value" TEXT' + ', ' +
@@ -442,12 +442,12 @@ function testCallbackSidePromise(assert, done) {
 						'FOREIGN KEY("list_id") REFERENCES "lists"("id")' +
 					')'
 				);
-				yield dbConn.execute(
+				yield conn.execute(
 					'CREATE TABLE "lists" (' +
 						'"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL' +
 					')'
 				);
-				yield dbConn.execute(
+				yield conn.execute(
 					'CREATE TABLE "lists_to_entries" (' +
 						'"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL' + ', ' +
 						'"list_id" INTEGER NOT NULL' + ', ' +
@@ -456,7 +456,7 @@ function testCallbackSidePromise(assert, done) {
 						'FOREIGN KEY("entry_id") REFERENCES "entries"("id")' +
 					')'
 				);
-				yield dbConn.execute(
+				yield conn.execute(
 					'CREATE TABLE "entries" (' +
 						'"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL' + ', ' +
 						'"value" TEXT' +
