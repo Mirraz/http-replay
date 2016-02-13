@@ -327,8 +327,8 @@ function testCallbackValue(assert, done) {
 				preset,
 				{
 					"table": {
-						value: function() {
-							return Promise.resolve(valueStr);
+						value: function*() {
+							return yield Promise.resolve(valueStr);
 						}
 					}
 				}
@@ -375,8 +375,8 @@ function testCallbackSubExecution(assert, done) {
 				preset,
 				{
 					"table02": {
-						table01_id: function(executor) {
-							return executor.execute({
+						table01_id: function*(executor) {
+							return yield* executor.execute({
 								"table01": {
 									value: table01ValueStr
 								}
@@ -413,7 +413,7 @@ function arrayContentsEquals(firstArray, secondArray) {
 	return arrayEquals(firstArraySorted, secondArraySorted);
 }
 
-function testCallbackSidePromise(assert, done) {
+function testCallbackSideExecutions(assert, done) {
 	const preset = makeOrmPreset({
 		"main": {insert: ["value", "list_id"]},
 		"lists": {insert: []},
@@ -470,29 +470,24 @@ function testCallbackSidePromise(assert, done) {
 					{
 						"main": {
 							value: mainValueStr,
-							list_id: function(executor) {
-								let listIdPromise = executor.execute({"lists": {}});
-								executor.addSidePromise(
-									"rels",
-									listIdPromise
-										.then(
-											listId => Promise.all(
-												entryValueStrArr.map(
-													entryValueStr => executor.execute({
-														"lists_to_entries": {
-															list_id: listId,
-															entry_id: {
-																"entries": {
-																	value: entryValueStr
-																}
-															}
-														}
-													})
-												)
-											)
-										)
-								);
-								return listIdPromise;
+							list_id: function*(executor) {
+								let listId = yield* executor.execute({"lists": {}});
+								let relIds = [];
+								for (let entryValueStr of entryValueStrArr) {
+									let relId = yield* executor.execute({
+										"lists_to_entries": {
+											list_id: listId,
+											entry_id: {
+												"entries": {
+													value: entryValueStr
+												}
+											}
+										}
+									});
+									relIds.push(relId);
+								}
+								executor.addSubExecutionResult("rels", relIds);
+								return listId;
 							}
 						}
 					}
@@ -594,7 +589,7 @@ exports["test nested tables"] = testNestedTables;
 exports["test enum table"] = testEnumTable;
 exports["test callback value"] = testCallbackValue;
 exports["test callback sub execution"] = testCallbackSubExecution;
-exports["test callback side promise"] = testCallbackSidePromise;
+exports["test callback side executions"] = testCallbackSideExecutions;
 
 //exports["test transaction performance"] = testTransactionPerformance;
 
