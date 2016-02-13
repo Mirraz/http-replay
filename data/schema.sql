@@ -223,9 +223,9 @@ CREATE TABLE "cache_entries" (
 	-- meta
 	"http_request_method_id" INTEGER NOT NULL,
 	"http_request_header_list_id" INTEGER NOT NULL,
+	"http_response_status_http_version_id" INTEGER NOT NULL,
 	"http_response_status_code" INTEGER NOT NULL,
 	"http_response_status_text" TEXT NOT NULL,
-	"http_response_status_http_version_id" INTEGER NOT NULL,
 	"http_response_header_list_id" INTEGER NOT NULL,
 	"cache_entry_meta_list_id" INTEGER NOT NULL,
 	
