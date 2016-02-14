@@ -13,14 +13,21 @@ CREATE TABLE "observations" (
 CREATE TABLE "responses" (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
 	"observation_id" INTEGER NOT NULL,
-	FOREIGN KEY("observation_id") REFERENCES "observations"("id")
+	"http_channel_id" INTEGER NOT NULL,
+	"http_response_data_id" INTEGER,
+	"http_status_id" INTEGER NOT NULL,
+	"cache_entry_id" INTEGER,
+	FOREIGN KEY("observation_id") REFERENCES "observations"("id"),
+	FOREIGN KEY("http_channel_id") REFERENCES "http_channels"("id"),
+	FOREIGN KEY("http_response_data_id") REFERENCES "http_response_datas"("id"),
+	FOREIGN KEY("http_status_id") REFERENCES "http_statuses"("id"),
+	FOREIGN KEY("cache_entry_id") REFERENCES "cache_entries"("id")
 );
 
 
 
 CREATE TABLE "http_channels" (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-	"response_id" INTEGER NOT NULL,
 	"http_topic_id" INTEGER NOT NULL,
 
 	-- request
@@ -39,7 +46,6 @@ CREATE TABLE "http_channels" (
 	
 	"securityInfoData_id" INTEGER,
 	
-	FOREIGN KEY("response_id") REFERENCES "responses"("id"),
 	FOREIGN KEY("http_topic_id") REFERENCES "http_topics"("id"),
 	FOREIGN KEY("http_request_method_id") REFERENCES "http_request_methods"("id"),
 	FOREIGN KEY("http_request_header_list_id") REFERENCES "http_request_header_lists"("id"),
@@ -194,26 +200,21 @@ CREATE TABLE "certHashes" (
 
 CREATE TABLE "http_response_datas" (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-	"response_id" INTEGER NOT NULL,
-	"data" BLOB,
-	FOREIGN KEY("response_id") REFERENCES "responses"("id")
+	"data" BLOB
 );
 
 
 
 CREATE TABLE "http_statuses" (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-	"response_id" INTEGER NOT NULL,
 	"tracing_status" INTEGER NOT NULL,
-	"http_status" INTEGER NOT NULL,
-	FOREIGN KEY("response_id") REFERENCES "responses"("id")
+	"http_status" INTEGER NOT NULL
 );
 
 
 
 CREATE TABLE "cache_entries" (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-	"response_id" INTEGER NOT NULL,
 	"key" TEXT NOT NULL,
 	"expirationTime" INTEGER NOT NULL,
 	"predictedDataSize" INTEGER NOT NULL,
@@ -229,7 +230,6 @@ CREATE TABLE "cache_entries" (
 	"http_response_header_list_id" INTEGER NOT NULL,
 	"cache_entry_meta_list_id" INTEGER NOT NULL,
 	
-	FOREIGN KEY("response_id") REFERENCES "responses"("id"),
 	FOREIGN KEY("http_request_method_id") REFERENCES "http_request_methods"("id"),
 	FOREIGN KEY("http_request_header_list_id") REFERENCES "http_request_header_lists"("id"),
 	FOREIGN KEY("http_response_status_http_version_id") REFERENCES "http_response_status_http_versions"("id"),
