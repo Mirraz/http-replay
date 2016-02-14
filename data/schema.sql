@@ -157,7 +157,7 @@ CREATE TABLE "SSLStatuses" (
 	"hasIsEVStatus" BOOLEAN NOT NULL,
 	"haveCipherSuiteAndProtocol" BOOLEAN NOT NULL,
 	"haveCertErrorBits" BOOLEAN NOT NULL,
-	FOREIGN KEY("serverCert_id") REFERENCES "certs"("id")
+	FOREIGN KEY("serverCert_id") REFERENCES "certObjs"("id")
 );
 
 CREATE TABLE "certLists" (
