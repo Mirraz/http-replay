@@ -59,21 +59,25 @@ CREATE TABLE "http_topics" (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
 	"value" TEXT NOT NULL UNIQUE
 );
+CREATE UNIQUE INDEX "http_topics_index" ON "http_topics" ("value");
 
 CREATE TABLE "http_request_methods" (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
 	"value" TEXT NOT NULL UNIQUE
 );
+CREATE UNIQUE INDEX "http_request_methods_index" ON "http_request_methods" ("value");
 
 CREATE TABLE "http_response_content_types" (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
 	"value" TEXT NOT NULL UNIQUE
 );
+CREATE UNIQUE INDEX "http_response_content_types_index" ON "http_response_content_types" ("value");
 
 CREATE TABLE "http_response_content_charsets" (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
 	"value" TEXT NOT NULL UNIQUE
 );
+CREATE UNIQUE INDEX "http_response_content_charsets_index" ON "http_response_content_charsets" ("value");
 
 CREATE TABLE "http_request_header_lists" (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL
@@ -98,6 +102,7 @@ CREATE TABLE "http_request_header_names" (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
 	"value" TEXT NOT NULL UNIQUE
 );
+CREATE UNIQUE INDEX "http_request_header_names_index" ON "http_request_header_names" ("value");
 
 CREATE TABLE "http_response_header_lists" (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL
@@ -122,6 +127,7 @@ CREATE TABLE "http_response_header_names" (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
 	"value" TEXT NOT NULL UNIQUE
 );
+CREATE UNIQUE INDEX "http_response_header_names_index" ON "http_response_header_names" ("value");
 
 
 
@@ -241,6 +247,7 @@ CREATE TABLE "http_response_status_http_versions" (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
 	"value" TEXT NOT NULL UNIQUE
 );
+CREATE UNIQUE INDEX "http_response_status_http_versions_index" ON "http_response_status_http_versions" ("value");
 
 CREATE TABLE "cache_entry_meta_lists" (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL
@@ -265,6 +272,7 @@ CREATE TABLE "cache_entry_meta_names" (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
 	"value" TEXT NOT NULL UNIQUE
 );
+CREATE UNIQUE INDEX "cache_entry_meta_names_index" ON "cache_entry_meta_names" ("value");
 
 
 
