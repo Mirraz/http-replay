@@ -1,0 +1,7 @@
+/data/schema.sql
+/lib/sqliteSDM.js
+/lib/sqlite.js
+/lib/sqliteORM.js
+/lib/sqliteRDM.js
+/lib/sqliteDM.js
+/test/test-sqliteORM.js
