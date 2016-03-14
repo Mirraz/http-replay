@@ -1,3 +1,4 @@
+/.jpmignore
 /data/schema.sql
 /lib/sqliteSDM.js
 /lib/sqlite.js
