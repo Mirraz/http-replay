@@ -8,3 +8,5 @@
 /test/test-sqliteORM.js
 /LICENSE
 /README.md
+/.git
+/.gitignore
